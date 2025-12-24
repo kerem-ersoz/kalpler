@@ -5,7 +5,7 @@
   max-height: 100%;
   background: 
     linear-gradient(rgba(0, 0, 0, 0.3), rgba(0, 0, 0, 0.3)),
-    url('/assets/backgrounds/lobby.png?v=5') center/cover no-repeat,
+    url('/kalpler/assets/backgrounds/lobby.png?v=5') center/cover no-repeat,
     linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
   overflow: hidden;
 }
@@ -220,7 +220,7 @@
   width: 422px;
   height: 569px;
   background: 
-    url('/assets/backgrounds/table.png?v=2') center/100% 100% no-repeat,
+    url('/kalpler/assets/backgrounds/table.png?v=2') center/100% 100% no-repeat,
     radial-gradient(ellipse, #2d5a27 0%, #1e3d1a 100%);
   border-radius: 1px;
   border: none;

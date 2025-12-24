@@ -11,19 +11,20 @@ const checkedSounds = new Set<string>();
  * Sound asset paths - place your custom sound files in /public/sounds/
  * Supported formats: mp3, ogg, wav
  */
+const BASE_PATH = import.meta.env.BASE_URL || '/';
 export const SOUND_ASSETS = {
-  cardFlip: '/sounds/card-flip.mp3',
-  cardFlick: '/sounds/card-flick.mp3',
-  cardDeal: '/sounds/card-deal.mp3',
-  timerWarning: '/sounds/timer-warning.mp3',
-  chatNotification: '/sounds/chat-notification.mp3',
-  gameStart: '/sounds/game-start.mp3',
-  victory: '/sounds/victory.mp3',
-  defeat: '/sounds/defeat.mp3',
-  trickWinClean: '/sounds/trick-win-clean.mp3',
-  trickWinPoints: '/sounds/trick-win-points.mp3',
-  trickWinQueen: '/sounds/trick-win-queen.mp3',
-  pointCounter: '/sounds/point-counter.mp3',
+  cardFlip: `${BASE_PATH}sounds/card-flip.mp3`,
+  cardFlick: `${BASE_PATH}sounds/card-flick.mp3`,
+  cardDeal: `${BASE_PATH}sounds/card-deal.mp3`,
+  timerWarning: `${BASE_PATH}sounds/timer-warning.mp3`,
+  chatNotification: `${BASE_PATH}sounds/chat-notification.mp3`,
+  gameStart: `${BASE_PATH}sounds/game-start.mp3`,
+  victory: `${BASE_PATH}sounds/victory.mp3`,
+  defeat: `${BASE_PATH}sounds/defeat.mp3`,
+  trickWinClean: `${BASE_PATH}sounds/trick-win-clean.mp3`,
+  trickWinPoints: `${BASE_PATH}sounds/trick-win-points.mp3`,
+  trickWinQueen: `${BASE_PATH}sounds/trick-win-queen.mp3`,
+  pointCounter: `${BASE_PATH}sounds/point-counter.mp3`,
 } as const;
 
 export type SoundName = keyof typeof SOUND_ASSETS;
