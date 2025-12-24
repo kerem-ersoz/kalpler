@@ -1,4 +1,5 @@
 import express from 'express';
+import cors from 'cors';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
 import { fileURLToPath } from 'url';
@@ -34,10 +35,14 @@ const getAllowedOrigins = () => {
   return filtered.length > 0 ? filtered : false;
 };
 
+// Apply CORS for any REST/static routes (Socket.io has its own CORS below)
+app.use(cors({ origin: getAllowedOrigins(), credentials: true }));
+
 const io = new Server(httpServer, {
   cors: {
     origin: getAllowedOrigins(),
     methods: ['GET', 'POST'],
+    credentials: true,
   },
 });
 
