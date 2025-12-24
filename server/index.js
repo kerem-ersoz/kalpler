@@ -10,9 +10,23 @@ const __dirname = dirname(__filename);
 
 const app = express();
 const httpServer = createServer(app);
+
+// CORS origins for Socket.io
+const getAllowedOrigins = () => {
+  if (process.env.NODE_ENV !== 'production') {
+    return ['http://localhost:5173'];
+  }
+  // In production, allow GitHub Pages and the Render domain itself
+  const origins = [
+    'https://kerem-ersoz.github.io',
+    process.env.RENDER_EXTERNAL_URL, // Render provides this automatically
+  ].filter(Boolean);
+  return origins.length > 0 ? origins : false;
+};
+
 const io = new Server(httpServer, {
   cors: {
-    origin: process.env.NODE_ENV === 'production' ? false : ['http://localhost:5173'],
+    origin: getAllowedOrigins(),
     methods: ['GET', 'POST'],
   },
 });
