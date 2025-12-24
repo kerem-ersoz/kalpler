@@ -1,0 +1,7 @@
+# Place custom font files here
+# Supported formats: .woff2, .woff, .ttf, .otf
+#
+# Available font slots:
+# - primary.woff2    : Main UI font
+# - display.woff2    : Headers and titles
+# - mono.woff2       : Monospace (scores, timers)

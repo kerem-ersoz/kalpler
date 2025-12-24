@@ -1,0 +1,10 @@
+# Place custom sound files here
+# Supported formats: .mp3, .wav, .ogg
+#
+# Available sound slots:
+# - card-flip.mp3    : Sound when cards are dealt/animated
+# - card-flick.mp3   : Sound when a card is played
+# - timer-warning.mp3: Sound when turn timer is low
+# - trick-win.mp3    : Sound when winning a trick
+# - round-end.mp3    : Sound at end of round
+# - game-end.mp3     : Sound at end of game

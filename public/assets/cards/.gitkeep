@@ -1,0 +1,9 @@
+# Place custom card images here
+# Supported formats: .png, .svg, .webp
+#
+# Card naming convention:
+# - {suit}-{rank}.png (e.g., hearts-A.png, spades-10.png, clubs-K.png)
+# - card-back.png     : Back of card design
+#
+# Suits: hearts, diamonds, clubs, spades
+# Ranks: 2, 3, 4, 5, 6, 7, 8, 9, 10, J, Q, K, A
