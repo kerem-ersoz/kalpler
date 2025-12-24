@@ -16,12 +16,22 @@ const getAllowedOrigins = () => {
   if (process.env.NODE_ENV !== 'production') {
     return ['http://localhost:5173'];
   }
-  // In production, allow GitHub Pages and the Render domain itself
+
+  // Allow list for production
   const origins = [
-    'https://kerem-ersoz.github.io',
+    'https://kerem-ersoz.github.io', // GitHub Pages
+    'https://www.ker.ooo',           // Custom domain (www)
+    'https://ker.ooo',               // Custom domain (apex)
     process.env.RENDER_EXTERNAL_URL, // Render provides this automatically
-  ].filter(Boolean);
-  return origins.length > 0 ? origins : false;
+  ];
+
+  // Optional extra origins via env, comma-separated
+  if (process.env.ALLOWED_ORIGINS) {
+    origins.push(...process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim()).filter(Boolean));
+  }
+
+  const filtered = origins.filter(Boolean);
+  return filtered.length > 0 ? filtered : false;
 };
 
 const io = new Server(httpServer, {
