@@ -12,37 +12,14 @@ const __dirname = dirname(__filename);
 const app = express();
 const httpServer = createServer(app);
 
-// CORS origins for Socket.io
-const getAllowedOrigins = () => {
-  if (process.env.NODE_ENV !== 'production') {
-    return ['http://localhost:5173'];
-  }
-
-  // Allow list for production
-  const origins = [
-    'https://kerem-ersoz.github.io', // GitHub Pages
-    'https://www.ker.ooo',           // Custom domain (www)
-    'https://ker.ooo',               // Custom domain (apex)
-    process.env.RENDER_EXTERNAL_URL, // Render provides this automatically
-  ];
-
-  // Optional extra origins via env, comma-separated
-  if (process.env.ALLOWED_ORIGINS) {
-    origins.push(...process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim()).filter(Boolean));
-  }
-
-  const filtered = origins.filter(Boolean);
-  return filtered.length > 0 ? filtered : false;
-};
-
-// Apply CORS for any REST/static routes (Socket.io has its own CORS below)
-app.use(cors({ origin: getAllowedOrigins(), credentials: true }));
+// CORS: allow all origins (no credentials)
+app.use(cors({ origin: '*', credentials: false }));
 
 const io = new Server(httpServer, {
   cors: {
-    origin: getAllowedOrigins(),
+    origin: '*',
     methods: ['GET', 'POST'],
-    credentials: true,
+    credentials: false,
   },
 });
 
