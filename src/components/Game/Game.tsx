@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import { useGame } from '../../context/GameContext';
 import { useSocket, playCardFlipSound, playPointCounterSound } from '../../context/SocketContext';
 import { Card } from './Card';
-import type { Card as CardType, TrickCard } from '../../types/game';
+import type { Card as CardType, TrickCard, KingContract } from '../../types/game';
 import styles from './Game.module.css';
 
 const DIRECTION_LABELS: Record<string, string> = {
@@ -10,6 +10,34 @@ const DIRECTION_LABELS: Record<string, string> = {
   right: '→ Sağa',
   across: '↑ Karşıya',
   hold: 'Pas yok',
+};
+
+// Contract labels for King
+const CONTRACT_LABELS: Record<string, string> = {
+  el: 'El Almaz',
+  kupa: 'Kupa Almaz',
+  erkek: 'Erkek Almaz',
+  kiz: 'Kız Almaz',
+  rifki: 'Rıfkı',
+  sonIki: 'Son iki',
+  trump: 'Koz',
+};
+
+const CONTRACT_DESCRIPTIONS: Record<string, string> = {
+  el: '(-50/el)',
+  kupa: '(-30/kupa)',
+  erkek: '(-60/erkek)',
+  kiz: '(-100/kız)',
+  rifki: '(-320)',
+  sonIki: '(-180/el)',
+  trump: '(+50/el)',
+};
+
+const SUIT_LABELS: Record<string, string> = {
+  hearts: '♥ Kupa',
+  diamonds: '♦ Karo',
+  clubs: '♣ Sinek',
+  spades: '♠ Maça',
 };
 
 // Suit order: spades, hearts, clubs, diamonds
@@ -42,7 +70,7 @@ function cardEquals(a: CardType, b: CardType): boolean {
 
 export function Game() {
   const { state, dispatch } = useGame();
-  const { leaveTable, submitPass, playCard, rematch } = useSocket();
+  const { leaveTable, leaveSpectate, submitPass, playCard, rematch, selectContract } = useSocket();
   const [timerProgress, setTimerProgress] = useState(100);
   const [passTimerProgress, setPassTimerProgress] = useState(100);
   const [animatingSeats, setAnimatingSeats] = useState<Set<number>>(new Set());
@@ -59,6 +87,12 @@ export function Game() {
   const wasAnimatingRef = useRef(false);
   // Track dealing animation state locally to trigger CSS animation
   const [isDealing, setIsDealing] = useState(false);
+  // King: selected trump suit for trump contract
+  const [selectedTrumpSuit, setSelectedTrumpSuit] = useState<string | null>(null);
+  // Floating score animation state
+  const [floatingScores, setFloatingScores] = useState<Record<number, number | null>>({});
+  // Displayed scores (delayed update during animation)
+  const [displayedScores, setDisplayedScores] = useState<number[]>([0, 0, 0, 0]);
 
   // Calculate player positions relative to current player
   const positions = useMemo(() => {
@@ -272,19 +306,28 @@ export function Game() {
 
   // Point cards animation on round end - animate each player sequentially (most recent → least recent joiner)
   // with 700ms delay between players and 300ms per card
+  // Works for both players and spectators
   useEffect(() => {
-    if (state.phase === 'roundEnd' && state.pointCardsTaken) {
+    const pointCards = state.isSpectating && state.spectatorState?.pointCardsTaken 
+      ? state.spectatorState.pointCardsTaken 
+      : state.pointCardsTaken;
+    const currentPhase = state.isSpectating && state.spectatorState 
+      ? state.spectatorState.phase 
+      : state.phase;
+    
+    if (currentPhase === 'roundEnd' && pointCards) {
       // Animation order: most recently joined (seat 3) to least recently joined (seat 0)
       const animationOrder = [3, 2, 1, 0];
       
       // Build a sequence of animation steps with delays
       // Each step: { seat, cardIndex, delayFromStart }
       const steps: { seat: number; cardIndex: number; delayFromStart: number }[] = [];
-      let currentDelay = 0;
+      // Start with 1500ms delay to let the last trick take animation complete
+      let currentDelay = 1500;
       let isFirstPlayerWithCards = true;
       
       for (const seat of animationOrder) {
-        const cards = state.pointCardsTaken[seat] || [];
+        const cards = pointCards[seat] || [];
         if (cards.length > 0) {
           // Add 700ms delay before starting this player's cards (except for first player)
           if (!isFirstPlayerWithCards) {
@@ -319,15 +362,51 @@ export function Game() {
         timeouts.push(timeout);
       });
       
-      // Calculate total animation time and add 1000ms final delay
-      const totalAnimationTime = steps.length > 0 ? steps[steps.length - 1].delayFromStart + 1000 : 1000;
+      // Trigger floating score animation immediately (after initial 1500ms delay for last trick)
+      // For spectators, use spectatorState.roundScores; for players, use state.roundScores
+      const roundScores = state.isSpectating && state.spectatorState?.roundScores
+        ? state.spectatorState.roundScores
+        : state.roundScores;
       
-      // Store the final delay timeout for cleanup
-      const finalTimeout = setTimeout(() => {
-        // Animation complete - the 1000ms delay has passed
-        // The roundEnd phase will be handled by user clicking "Next Round" or auto-advance
-      }, totalAnimationTime);
-      timeouts.push(finalTimeout);
+      // Get cumulative scores for delayed display update
+      const cumulativeScores = state.isSpectating && state.spectatorState?.cumulativeScores
+        ? state.spectatorState.cumulativeScores
+        : state.cumulativeScores;
+      
+      // Calculate total animation time: last step delay + 300ms for last card + 1000ms buffer
+      const totalAnimationTime = steps.length > 0 ? steps[steps.length - 1].delayFromStart + 1300 : 1500;
+      
+      const scoreTimeout = setTimeout(() => {
+        // Show floating scores for each seat
+        if (roundScores) {
+          const scores: Record<number, number | null> = {};
+          for (let seat = 0; seat < 4; seat++) {
+            const score = roundScores[seat];
+            if (score !== undefined && score !== 0) {
+              scores[seat] = score;
+            }
+          }
+          setFloatingScores(scores);
+          // Clear after animation (4000ms)
+          setTimeout(() => setFloatingScores({}), 4000);
+        }
+      }, 1500); // Start at same time as card animation
+      timeouts.push(scoreTimeout);
+      
+      // Update displayed scores after all animations complete
+      const displayScoreTimeout = setTimeout(() => {
+        if (cumulativeScores) {
+          setDisplayedScores([...cumulativeScores]);
+        }
+      }, totalAnimationTime + 4000); // After card animation + floating score animation
+      timeouts.push(displayScoreTimeout);
+      
+      // Clear point cards 300ms before score update
+      const clearCardsTimeout = setTimeout(() => {
+        setAnimatingSeats(new Set());
+        setVisibleCardCounts({});
+      }, totalAnimationTime + 4000 - 300);
+      timeouts.push(clearCardsTimeout);
       
       return () => {
         timeouts.forEach(t => clearTimeout(t));
@@ -335,8 +414,16 @@ export function Game() {
     } else {
       setAnimatingSeats(new Set());
       setVisibleCardCounts({});
+      setFloatingScores({});
+      // When not in roundEnd, immediately update displayed scores
+      const cumulativeScores = state.isSpectating && state.spectatorState?.cumulativeScores
+        ? state.spectatorState.cumulativeScores
+        : state.cumulativeScores;
+      if (cumulativeScores) {
+        setDisplayedScores([...cumulativeScores]);
+      }
     }
-  }, [state.phase, state.pointCardsTaken]);
+  }, [state.phase, state.pointCardsTaken, state.roundScores, state.isSpectating, state.spectatorState?.phase, state.spectatorState?.pointCardsTaken, state.cumulativeScores, state.spectatorState?.cumulativeScores]);
 
   const handleCardClick = (card: CardType) => {
     if (state.phase === 'passing' && !state.passSubmitted) {
@@ -355,19 +442,77 @@ export function Game() {
     }
   };
 
+  const handleSelectContract = (contract: KingContract) => {
+    if (contract.type === 'trump') {
+      // For trump contract, need to select suit first
+      if (selectedTrumpSuit) {
+        selectContract(contract.type, selectedTrumpSuit);
+        setSelectedTrumpSuit(null);
+      }
+    } else {
+      selectContract(contract.type);
+    }
+  };
+
   const getPlayerName = (seat: number) => {
     const player = state.players.find(p => p.seat === seat);
     return player?.name || 'Bekleniyor...';
   };
 
-  // Generate DiceBear open-peeps avatar URL for each player
-  const getAvatarUrl = (seat: number) => {
-    const player = state.players.find(p => p.seat === seat);
-    if (!player) return null;
-    // Use multiple factors for unique seed
-    const seed = `${state.tableId}-${seat}-${player.name}-${player.id || ''}`;
-    // Use pixel-art style - let DiceBear randomize based on seed
-    return `https://api.dicebear.com/9.x/pixel-art/svg?seed=${encodeURIComponent(seed)}`;
+  // Available avatar images (0-11.png)
+  const AVATAR_COUNT = 12;
+  
+  // Generate a deterministic random avatar index based on table+player info
+  // This ensures the same player gets the same avatar within a game session
+  // but different tables will have different assignments
+  const getAvatarIndex = useMemo(() => {
+    // Create a seeded random for this table
+    const tableHash = (state.tableId || '').split('').reduce((acc, char) => {
+      return ((acc << 5) - acc) + char.charCodeAt(0);
+    }, 0);
+    
+    // Assign avatars to seats, ensuring no duplicates
+    const assignments: number[] = [];
+    const usedAvatars = new Set<number>();
+    
+    for (let seat = 0; seat < 4; seat++) {
+      const player = state.players.find(p => p.seat === seat);
+      if (player) {
+        // Create a seed from table + player name for consistency
+        const playerSeed = `${state.tableId}-${player.name}`.split('').reduce((acc, char) => {
+          return ((acc << 5) - acc) + char.charCodeAt(0);
+        }, 0);
+        
+        // Find an available avatar
+        let avatarIndex = Math.abs(playerSeed) % AVATAR_COUNT;
+        let attempts = 0;
+        while (usedAvatars.has(avatarIndex) && attempts < AVATAR_COUNT) {
+          avatarIndex = (avatarIndex + 1) % AVATAR_COUNT;
+          attempts++;
+        }
+        usedAvatars.add(avatarIndex);
+        assignments[seat] = avatarIndex;
+      } else {
+        // No player at this seat yet, use seat-based default
+        let avatarIndex = (Math.abs(tableHash) + seat) % AVATAR_COUNT;
+        while (usedAvatars.has(avatarIndex)) {
+          avatarIndex = (avatarIndex + 1) % AVATAR_COUNT;
+        }
+        usedAvatars.add(avatarIndex);
+        assignments[seat] = avatarIndex;
+      }
+    }
+    
+    return assignments;
+  }, [state.tableId, state.players]);
+
+  // Get avatar URL for a seat
+  const getAvatarUrl = (seat: number): string | null => {
+    const avatarIndex = getAvatarIndex[seat];
+    if (avatarIndex === undefined) return null;
+    // Use import.meta.env.BASE_URL to handle base path correctly
+    const basePath = import.meta.env.BASE_URL || '/';
+    return `${basePath}assets/avatars/${avatarIndex}.png`;
   };
 
   const isPlayerConnected = (seat: number) => {
@@ -383,6 +528,160 @@ export function Game() {
     if (state.phase !== 'playing' || !state.isMyTurn) return false;
     return state.legalCards.some(c => cardEquals(c, card));
   };
+
+  // Spectator view - simplified read-only view
+  if (state.isSpectating && state.spectatorState) {
+    const spectatorState = state.spectatorState;
+    // Use state.currentTrick which updates via cardPlayed events, fall back to spectatorState
+    const trickToDisplay = state.trickAnimation?.trick || state.currentTrick || spectatorState.currentTrick || [];
+    const isAnimating = !!state.trickAnimation;
+    const phase = state.trickAnimation?.phase || 'showing';
+    const winnerSeat = state.trickAnimation?.winner || 0;
+    
+    return (
+      <div className={styles.game}>
+        <div className={styles.tableCornerInfo}>
+          <span className={styles.spectatorBadge}>iZLEYiCi</span>
+          <span className={styles.tableId}>Masa: {state.tableId}</span>
+          <span className={styles.versionInfo}>v1.3.1</span>
+        </div>
+
+        <div className={styles.mainArea}>
+          <div className={styles.tableArea}>
+            <div className={styles.table}>
+              {/* Current contract for King - above game number */}
+              {state.gameType === 'king' && spectatorState.currentContract && (
+                <div className={styles.spectatorContractDisplay}>
+                  <span className={styles.contractLabel}>
+                    {spectatorState.currentContract.type === 'trump'
+                      ? SUIT_LABELS[spectatorState.currentContract.trumpSuit!]
+                      : CONTRACT_LABELS[(spectatorState.currentContract as { name?: string }).name || spectatorState.currentContract.type]}
+                  </span>
+                </div>
+              )}
+
+              {/* Game info */}
+              <div className={styles.endingScoreCenter}>
+                {state.gameType === 'king' ? (
+                  <>Parti: {spectatorState.gameNumber || 1}/20</>
+                ) : (
+                  <>{state.endingScore || 20} Puanlık</>
+                )}
+              </div>
+
+              {/* Leave button */}
+              <div className={styles.tableCornerActions}>
+                <button className={styles.tableLeaveButton} onClick={leaveSpectate}>
+                  Ayrıl
+                </button>
+              </div>
+
+              {/* Player areas */}
+              {[0, 1, 2, 3].map(seat => {
+                const position = ['bottom', 'left', 'top', 'right'][seat];
+                const isCurrent = state.currentPlayer === seat || spectatorState.currentPlayer === seat;
+                const player = state.players.find(p => p.seat === seat);
+                const spectatorPointCards = spectatorState.pointCardsTaken?.[seat] || [];
+                const isAnimatingSeat = animatingSeats.has(seat);
+                const showPointCards = (state.phase === 'roundEnd' || spectatorState.phase === 'roundEnd') && isAnimatingSeat && spectatorPointCards.length > 0;
+                const avatarUrl = getAvatarUrl(seat);
+                const floatingScore = floatingScores[seat];
+                
+                return (
+                  <div 
+                    key={seat} 
+                    className={`${styles.playerArea} ${styles[position]}`}
+                  >
+                    <div className={styles.playerContainer}>
+                      <div className={styles.playerNameRow}>
+                        <div className={styles.playerNameBox}>
+                          <span className={`${styles.playerName} ${isCurrent ? styles.currentTurn : ''}`}>
+                            {player?.name || `Oyuncu ${seat + 1}`}
+                          </span>
+                          {avatarUrl && (
+                            <img 
+                              src={avatarUrl} 
+                              alt="" 
+                              className={styles.playerAvatar}
+                              style={{ transform: (position === 'right' || position === 'bottom') ? 'scaleX(-1)' : 'none' }}
+                            />
+                          )}
+                          <span className={styles.playerScore}>
+                            Puan: {displayedScores[seat]}
+                          </span>
+                          {/* Floating score animation for spectators */}
+                          {floatingScore !== null && floatingScore !== undefined && (
+                            <div className={`${styles.floatingScore} ${styles.floatingScoreActive}`}>
+                              {floatingScore > 0 ? `+${floatingScore}` : floatingScore}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      {/* Point cards for spectators during round end - animated */}
+                      {showPointCards && (
+                        <div className={`${styles.playerPointCards} ${styles.animating}`}>
+                          {spectatorPointCards.slice(0, visibleCardCounts[seat] || 0).map((card) => (
+                            <div key={`${card.suit}-${card.rank}`} className={styles.playerPointCard}>
+                              <Card card={card} small />
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+
+              {/* Trick area with animations */}
+              <div className={styles.trickArea}>
+                {trickToDisplay.map(({ seat, card }, index) => {
+                  // For spectators, seat 0 is at bottom position
+                  const relSeat = seat;
+                  // Show slide animation if this is the last played card and we're not in trick animation
+                  const shouldSlideIn = !isAnimating && state.lastPlayedCard && 
+                    cardEquals(state.lastPlayedCard.card, card) && 
+                    state.lastPlayedCard.seat === seat;
+                  const isNewest = index === trickToDisplay.length - 1;
+                  const zIndex = index + 1;
+                  
+                  return (
+                    <div 
+                      key={`${card.suit}-${card.rank}`} 
+                      className={`
+                        ${styles.trickCard} 
+                        ${styles[`seat${relSeat}`]}
+                        ${shouldSlideIn && isNewest ? styles.slideIn : ''}
+                        ${shouldSlideIn && isNewest ? styles[`slideFrom${['Bottom', 'Left', 'Top', 'Right'][relSeat]}`] : ''}
+                        ${isAnimating && phase === 'stacking' ? styles.stacking : ''}
+                        ${isAnimating && phase === 'sliding' ? styles.sliding : ''}
+                        ${isAnimating && phase === 'sliding' ? styles[`slideTo${['Bottom', 'Left', 'Top', 'Right'][winnerSeat]}`] : ''}
+                      `}
+                      style={{ zIndex }}
+                    >
+                      <Card card={card} small />
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Phase indicator */}
+              {(state.phase === 'passing' || spectatorState.phase === 'passing') && (
+                <div className={styles.passDirectionCenter}>
+                  Pas: {DIRECTION_LABELS[spectatorState.passDirection || 'hold']}
+                </div>
+              )}
+              
+              {(state.phase === 'contractSelection' || spectatorState.phase === 'contractSelection') && (
+                <div className={styles.passDirectionCenter}>
+                  Kontrat seçiliyor...
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   // Waiting for players
   if (state.phase === 'waiting') {
@@ -423,10 +722,6 @@ export function Game() {
 
   return (
     <div className={styles.game}>
-      <div className={styles.header}>
-        <span className={styles.headerTitle}>GÖNÜL KIRAATHANESi</span>
-      </div>
-
       {/* Table info - lower left corner of screen */}
       <div className={styles.tableCornerInfo}>
         <span className={styles.tableId}>Masa: {state.tableId}</span>
@@ -438,8 +733,76 @@ export function Game() {
           <div className={styles.table}>
             {/* Ending score - centered on table */}
             <div className={styles.endingScoreCenter}>
-              Bitiş: 20
+              {state.gameType === 'king' ? (
+                <>Parti: {state.kingState?.gameNumber || 1}/20</>
+              ) : (
+                <>Bitiş: {state.endingScore || 20}</>
+              )}
             </div>
+
+            {/* Contract selection UI for King */}
+            {state.phase === 'contractSelection' && state.gameType === 'king' && state.kingState && (
+              state.isMyTurn ? (
+                <div className={styles.contractSelectionOverlay}>
+                  <div className={styles.contractSelectionBox}>
+                    <h3>ihale Seç</h3>
+                    <div className={styles.contractGrid}>
+                      {state.kingState.availableContracts
+                        .filter(contract => contract.type !== 'trump')
+                        .map((contract) => (
+                        <button
+                          key={contract.type}
+                          className={`${styles.contractButton} ${contract.disabled ? styles.contractDisabled : ''}`}
+                          onClick={() => !contract.disabled && handleSelectContract(contract)}
+                          disabled={contract.disabled}
+                        >
+                          <span className={styles.contractName}>{CONTRACT_LABELS[contract.type]}</span>
+                          <span className={styles.contractDesc}>{CONTRACT_DESCRIPTIONS[contract.type]}</span>
+                          <span className={styles.contractUsage}>{contract.usageCount || 0}/2</span>
+                        </button>
+                      ))}
+                    </div>
+                    {state.kingState.availableContracts.some(c => c.type === 'trump') && (
+                      <div className={styles.trumpSuitSelection}>
+                        <h4>Koz Seç</h4>
+                        <div className={styles.suitButtons}>
+                          {state.kingState.availableContracts
+                            .filter(c => c.type === 'trump')
+                            .map(contract => (
+                            <button
+                              key={contract.trumpSuit}
+                              className={`${styles.suitButton} ${contract.trumpSuit === 'hearts' || contract.trumpSuit === 'diamonds' ? styles.redSuit : ''} ${contract.disabled ? styles.suitDisabled : ''}`}
+                              onClick={() => !contract.disabled && selectContract('trump', contract.trumpSuit!)}
+                              disabled={contract.disabled}
+                            >
+                              {SUIT_LABELS[contract.trumpSuit!]}
+                              <span className={styles.suitUsage}>{contract.usageCount || 0}/2</span>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <div className={styles.waitingForContractOverlay}>
+                  <div className={styles.waitingForContractText}>
+                    {getPlayerName(state.kingState.currentContractSelector!)} ihale seçiyor...
+                  </div>
+                </div>
+              )
+            )}
+
+            {/* Current contract display for King */}
+            {state.gameType === 'king' && state.kingState?.selectedContract && (state.phase === 'playing' || state.phase === 'roundEnd') && (
+              <div className={styles.currentContractDisplay}>
+                <span className={styles.contractLabel}>
+                  {state.kingState.selectedContract.type === 'trump' 
+                    ? SUIT_LABELS[state.kingState.selectedContract.trumpSuit!]
+                    : CONTRACT_LABELS[(state.kingState.selectedContract as { name?: string }).name || state.kingState.selectedContract.type]}
+                </span>
+              </div>
+            )}
 
             {/* Leave button - southeast corner */}
             <div className={styles.tableCornerActions}>
@@ -456,6 +819,7 @@ export function Game() {
               const pointCards = state.pointCardsTaken[seat] || [];
               const isAnimating = animatingSeats.has(seat);
               const avatarUrl = getAvatarUrl(seat);
+              const floatingScore = floatingScores[seat];
               
               return (
                 <div 
@@ -477,12 +841,18 @@ export function Game() {
                           />
                         )}
                         <span className={styles.playerScore}>
-                          Puan: {state.cumulativeScores[seat]}
+                          Puan: {displayedScores[seat]}
                         </span>
                         {/* Moon shot animation */}
                         {state.moonShooter === seat && (
                           <div className={styles.moonShotText}>
                             Ayı Vurdu!
+                          </div>
+                        )}
+                        {/* Floating score animation */}
+                        {floatingScore !== null && floatingScore !== undefined && (
+                          <div className={`${styles.floatingScore} ${styles.floatingScoreActive}`}>
+                            {floatingScore > 0 ? `+${floatingScore}` : floatingScore}
                           </div>
                         )}
                       </div>
@@ -500,16 +870,6 @@ export function Game() {
                 </div>
               );
             })}
-
-            {/* Round points display - centered on table */}
-            {state.phase === 'roundEnd' && Object.values(state.roundScores).some(s => s > 0) && (
-              <div className={styles.roundPointsText}>
-                {Object.entries(state.roundScores)
-                  .filter(([, score]) => score > 0)
-                  .map(([seat, score]) => `+${score}`)
-                  .join(' ')}
-              </div>
-            )}
 
             {/* Last trick display - inside table, right of North player */}
             {/* Box always visible during playing phase, cards update only after animation ends */}

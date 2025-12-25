@@ -184,7 +184,7 @@ class Bot {
         this.seat = data.seat;
         resolve(data.tableId);
       });
-      this.socket.emit('createTable', { playerName: this.name });
+      this.socket.emit('createTable', { playerName: this.name, options: { endingScore: AUTO_MODE ? 50 : 20 } });
     });
   }
 

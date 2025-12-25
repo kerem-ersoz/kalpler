@@ -6,6 +6,10 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { readFileSync } from 'fs';
 
+import { HeartsGame } from './games/HeartsGame.js';
+import { KingGame, CONTRACT_TYPES, PENALTY_CONTRACTS, CONTRACT_LABELS, TRUMP_LABELS } from './games/KingGame.js';
+import { RANK_VALUES, cardEquals } from './shared/cards.js';
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
@@ -37,430 +41,13 @@ if (process.env.NODE_ENV === 'production') {
 }
 
 // ============================================================================
-// GAME CLASSES
+// GAME TYPES
 // ============================================================================
 
-const SUITS = ['hearts', 'diamonds', 'clubs', 'spades'];
-const RANKS = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A'];
-const RANK_VALUES = {
-  '2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7, '8': 8, '9': 9,
-  '10': 10, 'J': 11, 'Q': 12, 'K': 13, 'A': 14
+export const GAME_TYPES = {
+  HEARTS: 'hearts',
+  KING: 'king'
 };
-const SUIT_SYMBOLS = { hearts: '♥', diamonds: '♦', clubs: '♣', spades: '♠' };
-
-function createDeck() {
-  const deck = [];
-  for (const suit of SUITS) {
-    for (const rank of RANKS) {
-      deck.push({
-        suit,
-        rank,
-        display: `${rank}${SUIT_SYMBOLS[suit]}`,
-      });
-    }
-  }
-  return deck;
-}
-
-function shuffleDeck(deck) {
-  const shuffled = [...deck];
-  for (let i = shuffled.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
-  }
-  return shuffled;
-}
-
-function cardEquals(a, b) {
-  return a.suit === b.suit && a.rank === b.rank;
-}
-
-function getPassDirection(roundNumber) {
-  const directions = ['left', 'right', 'across', 'hold'];
-  return directions[(roundNumber - 1) % 4];
-}
-
-function getReceiverIndex(giverIndex, direction) {
-  switch (direction) {
-    case 'left': return (giverIndex + 1) % 4;
-    case 'right': return (giverIndex + 3) % 4;
-    case 'across': return (giverIndex + 2) % 4;
-    default: return giverIndex;
-  }
-}
-
-class HeartsGame {
-  constructor() {
-    this.hands = [[], [], [], []];
-    this.roundNumber = 1;
-    this.phase = 'dealing';
-    this.passDirection = null;
-    this.passes = {};
-    this.currentTrick = [];
-    this.currentPlayer = 0;
-    this.heartsBroken = false;
-    this.tricksTaken = [[], [], [], []];
-    this.roundScores = [0, 0, 0, 0];
-    this.cumulativeScores = [0, 0, 0, 0];
-    this.turnTimer = null;
-    this.turnWarningTimer = null;
-    this.lastTrick = null;
-    this.tricksPlayed = 0;
-  }
-
-  deal() {
-    const deck = shuffleDeck(createDeck());
-    this.hands = [[], [], [], []];
-    
-    for (let i = 0; i < 52; i++) {
-      this.hands[i % 4].push(deck[i]);
-    }
-    
-    // Sort hands
-    for (let i = 0; i < 4; i++) {
-      this.hands[i] = this.sortHand(this.hands[i]);
-    }
-    
-    this.passDirection = getPassDirection(this.roundNumber);
-    this.phase = this.passDirection === 'hold' ? 'playing' : 'passing';
-    this.passes = {};
-    this.currentTrick = [];
-    this.heartsBroken = false;
-    this.tricksTaken = [[], [], [], []];
-    this.roundScores = [0, 0, 0, 0];
-    this.lastTrick = null;
-    this.tricksPlayed = 0;
-    
-    // Find player with 2 of clubs
-    if (this.phase === 'playing') {
-      this.currentPlayer = this.findTwoOfClubsPlayer();
-    }
-    
-    return this.passDirection;
-  }
-
-  sortHand(hand) {
-    const suitOrder = { clubs: 0, diamonds: 1, spades: 2, hearts: 3 };
-    return [...hand].sort((a, b) => {
-      if (suitOrder[a.suit] !== suitOrder[b.suit]) {
-        return suitOrder[a.suit] - suitOrder[b.suit];
-      }
-      return RANK_VALUES[a.rank] - RANK_VALUES[b.rank];
-    });
-  }
-
-  findTwoOfClubsPlayer() {
-    for (let i = 0; i < 4; i++) {
-      if (this.hands[i].some(c => c.suit === 'clubs' && c.rank === '2')) {
-        return i;
-      }
-    }
-    return 0;
-  }
-
-  submitPass(playerIndex, cards) {
-    if (this.phase !== 'passing') {
-      return { success: false, error: 'Not in passing phase' };
-    }
-    
-    if (cards.length !== 3) {
-      return { success: false, error: 'Must pass exactly 3 cards' };
-    }
-    
-    // Validate cards are in player's hand
-    for (const card of cards) {
-      if (!this.hands[playerIndex].some(c => cardEquals(c, card))) {
-        return { success: false, error: 'Card not in hand' };
-      }
-    }
-    
-    this.passes[playerIndex] = cards;
-    
-    // Check if all passes submitted
-    if (Object.keys(this.passes).length === 4) {
-      const exchangeInfo = this.executeCardExchange();
-      return { success: true, allPassed: true, exchangeInfo };
-    }
-    
-    return { success: true, allPassed: false };
-  }
-
-  executeCardExchange() {
-    const direction = this.passDirection;
-    const receivedCards = [[], [], [], []];
-    const passedCards = { ...this.passes }; // Store before clearing
-    
-    // Calculate what each player receives
-    for (let i = 0; i < 4; i++) {
-      const receiverIndex = getReceiverIndex(i, direction);
-      receivedCards[receiverIndex] = this.passes[i];
-    }
-    
-    // Remove passed cards and add received cards
-    for (let i = 0; i < 4; i++) {
-      // Remove passed cards
-      this.hands[i] = this.hands[i].filter(
-        c => !this.passes[i].some(p => cardEquals(c, p))
-      );
-      // Add received cards
-      this.hands[i].push(...receivedCards[i]);
-      // Re-sort hand
-      this.hands[i] = this.sortHand(this.hands[i]);
-    }
-    
-    this.phase = 'playing';
-    this.currentPlayer = this.findTwoOfClubsPlayer();
-    this.passes = {};
-    
-    // Return exchange info for each player
-    return {
-      passedCards,
-      receivedCards,
-    };
-  }
-
-  getLegalCards(playerIndex) {
-    const hand = this.hands[playerIndex];
-    const isLeading = this.currentTrick.length === 0;
-    const isFirstTrick = this.tricksPlayed === 0 && this.currentTrick.length === 0;
-    
-    // First trick: must lead 2 of clubs
-    if (isFirstTrick && isLeading) {
-      return hand.filter(c => c.suit === 'clubs' && c.rank === '2');
-    }
-    
-    if (isLeading) {
-      // Can't lead hearts until broken (unless only hearts remain)
-      if (!this.heartsBroken) {
-        const nonHearts = hand.filter(c => c.suit !== 'hearts');
-        if (nonHearts.length > 0) {
-          return nonHearts;
-        }
-      }
-      return hand;
-    }
-    
-    // Must follow suit if possible
-    const ledSuit = this.currentTrick[0].card.suit;
-    const sameSuit = hand.filter(c => c.suit === ledSuit);
-    
-    if (sameSuit.length > 0) {
-      return sameSuit;
-    }
-    
-    // Can't play on first trick: hearts or Q♠
-    if (this.tricksPlayed === 0) {
-      const safe = hand.filter(c => 
-        c.suit !== 'hearts' && 
-        !(c.suit === 'spades' && c.rank === 'Q')
-      );
-      if (safe.length > 0) {
-        return safe;
-      }
-    }
-    
-    // Can play anything
-    return hand;
-  }
-
-  playCard(playerIndex, card) {
-    if (this.phase !== 'playing') {
-      return { success: false, error: 'Not in playing phase' };
-    }
-    
-    if (playerIndex !== this.currentPlayer) {
-      return { success: false, error: 'Not your turn' };
-    }
-    
-    const legalCards = this.getLegalCards(playerIndex);
-    if (!legalCards.some(c => cardEquals(c, card))) {
-      return { success: false, error: 'Illegal card play' };
-    }
-    
-    // Remove card from hand
-    this.hands[playerIndex] = this.hands[playerIndex].filter(c => !cardEquals(c, card));
-    
-    // Add to current trick
-    this.currentTrick.push({ seat: playerIndex, card });
-    
-    // Check if hearts broken
-    if (card.suit === 'hearts') {
-      this.heartsBroken = true;
-    }
-    
-    // Check if trick is complete
-    if (this.currentTrick.length === 4) {
-      return this.completeTrick();
-    }
-    
-    // Move to next player
-    this.currentPlayer = (this.currentPlayer + 1) % 4;
-    
-    return { success: true, trickComplete: false };
-  }
-
-  completeTrick() {
-    const ledSuit = this.currentTrick[0].card.suit;
-    let winningPlay = this.currentTrick[0];
-    
-    for (const play of this.currentTrick) {
-      if (play.card.suit === ledSuit && 
-          RANK_VALUES[play.card.rank] > RANK_VALUES[winningPlay.card.rank]) {
-        winningPlay = play;
-      }
-    }
-    
-    const winner = winningPlay.seat;
-    
-    // Calculate points in trick
-    let points = 0;
-    for (const play of this.currentTrick) {
-      if (play.card.suit === 'hearts') points += 1;
-      if (play.card.suit === 'spades' && play.card.rank === 'Q') points += 13;
-    }
-    
-    this.roundScores[winner] += points;
-    this.tricksTaken[winner].push([...this.currentTrick]);
-    this.lastTrick = [...this.currentTrick];
-    this.tricksPlayed++;
-    
-    // Check if round is complete
-    if (this.tricksPlayed === 13) {
-      return this.completeRound(winner);
-    }
-    
-    this.currentTrick = [];
-    this.currentPlayer = winner;
-    
-    return { 
-      success: true, 
-      trickComplete: true, 
-      winner, 
-      points,
-      roundComplete: false 
-    };
-  }
-
-  completeRound(lastTrickWinner) {
-    // Check for shooting the moon
-    const moonShooter = this.roundScores.findIndex(s => s === 26);
-    let moonShotType = null; // 'gave' or 'took'
-    
-    if (moonShooter !== -1) {
-      // Calculate what cumulative scores would be if shooter gets 0 and others get 26
-      const hypotheticalScores = this.cumulativeScores.map((score, i) => 
-        i === moonShooter ? score : score + 26
-      );
-      
-      // Check if shooter would win (have lowest score) with Option A
-      const shooterHypotheticalScore = hypotheticalScores[moonShooter];
-      const othersMinScore = Math.min(...hypotheticalScores.filter((_, i) => i !== moonShooter));
-      const shooterWouldWin = shooterHypotheticalScore <= othersMinScore;
-      
-      if (shooterWouldWin) {
-        // Option A: Others get 26 points, shooter gets 0
-        moonShotType = 'gave';
-        for (let i = 0; i < 4; i++) {
-          if (i === moonShooter) {
-            this.roundScores[i] = 0;
-          } else {
-            this.roundScores[i] = 26;
-          }
-        }
-      } else {
-        // Option B: Shooter takes 26 points (loses), others get 0
-        moonShotType = 'took';
-        for (let i = 0; i < 4; i++) {
-          if (i === moonShooter) {
-            this.roundScores[i] = 26;
-          } else {
-            this.roundScores[i] = 0;
-          }
-        }
-      }
-    }
-    
-    // Add to cumulative scores
-    for (let i = 0; i < 4; i++) {
-      this.cumulativeScores[i] += this.roundScores[i];
-    }
-    
-    // Check for game end (set to 20 for bot testing, normally 50)
-    const maxScore = Math.max(...this.cumulativeScores);
-    const gameOver = maxScore >= 20;
-    
-    let winner = null;
-    if (gameOver) {
-      const minScore = Math.min(...this.cumulativeScores);
-      winner = this.cumulativeScores.indexOf(minScore);
-    }
-    
-    this.currentTrick = [];
-    this.phase = 'roundEnd';
-    
-    return {
-      success: true,
-      trickComplete: true,
-      winner: lastTrickWinner,
-      points: this.roundScores[lastTrickWinner],
-      roundComplete: true,
-      roundScores: [...this.roundScores],
-      cumulativeScores: [...this.cumulativeScores],
-      moonShooter: moonShooter !== -1 ? moonShooter : null,
-      moonShotType, // 'gave' or 'took' or null
-      gameOver,
-      gameWinner: winner,
-    };
-  }
-
-  startNextRound() {
-    this.roundNumber++;
-    this.deal();
-  }
-
-  getStateForPlayer(playerIndex) {
-    return {
-      phase: this.phase,
-      roundNumber: this.roundNumber,
-      hand: this.hands[playerIndex],
-      currentTrick: this.currentTrick,
-      currentPlayer: this.currentPlayer,
-      heartsBroken: this.heartsBroken,
-      roundScores: this.roundScores,
-      cumulativeScores: this.cumulativeScores,
-      passDirection: this.passDirection,
-      passSubmitted: this.passes[playerIndex] !== undefined,
-      lastTrick: this.lastTrick,
-      legalCards: this.phase === 'playing' && playerIndex === this.currentPlayer
-        ? this.getLegalCards(playerIndex)
-        : [],
-    };
-  }
-
-  // Get point cards (hearts and queen of spades) taken by each player, sorted in ascending order
-  getPointCardsTaken() {
-    const rankValues = { '2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7, '8': 8, '9': 9, '10': 10, 'J': 11, 'Q': 12, 'K': 13, 'A': 14 };
-    const suitOrder = { clubs: 0, diamonds: 1, spades: 2, hearts: 3 };
-    
-    return this.tricksTaken.map(tricks => {
-      const pointCards = [];
-      for (const trick of tricks) {
-        for (const { card } of trick) {
-          if (card.suit === 'hearts' || (card.suit === 'spades' && card.rank === 'Q')) {
-            pointCards.push(card);
-          }
-        }
-      }
-      // Sort: spades first (Q♠), then hearts by rank ascending
-      return pointCards.sort((a, b) => {
-        if (a.suit !== b.suit) {
-          return suitOrder[a.suit] - suitOrder[b.suit];
-        }
-        return rankValues[a.rank] - rankValues[b.rank];
-      });
-    });
-  }
-}
 
 // ============================================================================
 // TABLE MANAGEMENT
@@ -486,15 +73,23 @@ function generateTableId() {
 }
 
 class Table {
-  constructor(id) {
+  constructor(id, gameType = GAME_TYPES.HEARTS, options = {}) {
     this.id = id;
+    this.gameType = gameType;
+    this.options = options; // { initialSelectorSeat: number, endingScore: number } for games
+    this.endingScore = options.endingScore || (gameType === GAME_TYPES.HEARTS ? 20 : null);
+    this.createdAt = Date.now();
     this.players = [];
+    this.spectators = []; // { id: socketId, name: string }
     this.game = null;
     this.cleanupTimer = null;
     this.rematchVotes = {};
     this.turnTimer = null;
+    this.turnWarningTimer = null;
     this.passTimer = null;
     this.passTimeoutAt = null;
+    this.selectTimer = null;
+    this.selectTimeoutAt = null;
     this.typingPlayers = new Set();
   }
 
@@ -521,6 +116,34 @@ class Table {
     }
     
     return { success: true, seat };
+  }
+
+  // Allow a new player to take over a disconnected player's seat mid-game
+  takeOverSeat(socketId, name) {
+    // Find a disconnected player
+    const disconnectedPlayer = this.players.find(p => !p.connected);
+    if (!disconnectedPlayer) {
+      return { success: false, error: 'No available seats' };
+    }
+    
+    const seat = disconnectedPlayer.seat;
+    
+    // Update the player's info
+    disconnectedPlayer.id = socketId;
+    disconnectedPlayer.name = name;
+    disconnectedPlayer.connected = true;
+    
+    if (this.cleanupTimer) {
+      clearTimeout(this.cleanupTimer);
+      this.cleanupTimer = null;
+    }
+    
+    return { success: true, seat, takeover: true };
+  }
+
+  // Check if there's a disconnected seat available for takeover
+  hasDisconnectedSeat() {
+    return this.game && this.players.some(p => !p.connected);
   }
 
   getNextSeat() {
@@ -557,7 +180,13 @@ class Table {
   startGame() {
     if (this.players.length !== 4) return false;
     
-    this.game = new HeartsGame();
+    if (this.gameType === GAME_TYPES.KING) {
+      const initialSelector = this.options.initialSelectorSeat ?? 0;
+      this.game = new KingGame(initialSelector);
+    } else {
+      this.game = new HeartsGame(this.endingScore);
+    }
+    
     this.game.deal();
     this.rematchVotes = {};
     
@@ -567,10 +196,37 @@ class Table {
   getPublicInfo() {
     return {
       id: this.id,
+      gameType: this.gameType,
       playerCount: this.players.length,
       playerNames: this.players.map(p => p.name),
       inGame: this.game !== null,
+      spectatorCount: this.spectators.length,
+      endingScore: this.endingScore,
+      createdAt: this.createdAt,
     };
+  }
+
+  addSpectator(socketId, name) {
+    // Check if already a spectator
+    if (this.spectators.find(s => s.id === socketId)) {
+      return { success: false, error: 'Already spectating' };
+    }
+    
+    this.spectators.push({ id: socketId, name });
+    return { success: true };
+  }
+
+  removeSpectator(socketId) {
+    const index = this.spectators.findIndex(s => s.id === socketId);
+    if (index === -1) return null;
+    
+    const spectator = this.spectators[index];
+    this.spectators.splice(index, 1);
+    return spectator;
+  }
+
+  getSpectatorIds() {
+    return this.spectators.map(s => s.id);
   }
 }
 
@@ -582,29 +238,42 @@ io.on('connection', (socket) => {
   console.log(`Client connected: ${socket.id}`);
   
   let currentTableId = null;
+  let isSpectating = false;
 
   // -------------------------------------------------------------------------
   // LOBBY EVENTS
   // -------------------------------------------------------------------------
 
-  socket.on('listTables', () => {
+  socket.on('listTables', ({ gameType, includeInProgress = false } = {}) => {
     const tableList = [];
     for (const [id, table] of tables) {
-      if (table.players.length < 4 && !table.game) {
-        tableList.push(table.getPublicInfo());
+      // Show waiting tables (not full, no game)
+      const isWaiting = table.players.length < 4 && !table.game;
+      // Show in-progress tables if requested (for spectating)
+      const isInProgress = table.game !== null && includeInProgress;
+      // Show in-progress tables with disconnected seats (for takeover)
+      const hasTakeoverSeat = table.hasDisconnectedSeat();
+      
+      if (isWaiting || isInProgress || hasTakeoverSeat) {
+        // Filter by game type if specified
+        if (!gameType || table.gameType === gameType) {
+          const info = table.getPublicInfo();
+          info.hasTakeoverSeat = hasTakeoverSeat;
+          tableList.push(info);
+        }
       }
     }
     socket.emit('tablesList', tableList);
   });
 
-  socket.on('createTable', ({ playerName }) => {
+  socket.on('createTable', ({ playerName, gameType = GAME_TYPES.HEARTS, options = {} }) => {
     if (!playerName || playerName.trim().length === 0) {
       socket.emit('error', { message: 'Player name is required' });
       return;
     }
     
     const tableId = generateTableId();
-    const table = new Table(tableId);
+    const table = new Table(tableId, gameType, options);
     tables.set(tableId, table);
     
     const result = table.addPlayer(socket.id, playerName.trim());
@@ -615,8 +284,10 @@ io.on('connection', (socket) => {
       
       socket.emit('tableJoined', {
         tableId,
+        gameType: table.gameType,
         seat: result.seat,
         players: table.players.map(p => ({ name: p.name, seat: p.seat, connected: p.connected })),
+        endingScore: table.endingScore,
       });
       
       broadcastTablesList();
@@ -638,7 +309,12 @@ io.on('connection', (socket) => {
       return;
     }
     
-    const result = table.addPlayer(socket.id, playerName.trim());
+    let result = table.addPlayer(socket.id, playerName.trim());
+    
+    // If game in progress but there's a disconnected seat, allow takeover
+    if (!result.success && table.hasDisconnectedSeat()) {
+      result = table.takeOverSeat(socket.id, playerName.trim());
+    }
     
     if (result.success) {
       socket.join(tableId);
@@ -646,32 +322,57 @@ io.on('connection', (socket) => {
       
       socket.emit('tableJoined', {
         tableId,
+        gameType: table.gameType,
         seat: result.seat,
         players: table.players.map(p => ({ name: p.name, seat: p.seat, connected: p.connected })),
+        endingScore: table.endingScore,
       });
       
       socket.to(tableId).emit('updatePlayers', {
         players: table.players.map(p => ({ name: p.name, seat: p.seat, connected: p.connected })),
       });
       
-      // Start game if 4 players
-      if (table.players.length === 4) {
+      // If this was a takeover, send current game state to the new player
+      if (result.takeover && table.game) {
+        sendGameStateToPlayer(table, socket.id, result.seat);
+      }
+      
+      // Start game if 4 players (only for non-takeover joins when game hasn't started)
+      if (table.players.length === 4 && !result.takeover) {
         table.startGame();
         
-        for (const player of table.players) {
-          io.to(player.id).emit('startGame', {
-            hand: table.game.hands[player.seat],
-            passDirection: table.game.passDirection,
-            phase: table.game.phase,
-            currentPlayer: table.game.currentPlayer,
-          });
-        }
-        
-        // Start pass timer if in passing phase, otherwise auto-play 2 of clubs
-        if (table.game.phase === 'passing') {
-          startPassTimer(table);
-        } else if (table.game.phase === 'playing') {
-          setTimeout(() => autoPlayTwoOfClubs(table), 500);
+        if (table.gameType === GAME_TYPES.KING) {
+          // King: start with contract selection
+          const availableContracts = table.game.getAvailableContracts(table.game.selectorSeat);
+          for (const player of table.players) {
+            io.to(player.id).emit('contractSelectionStart', {
+              gameType: GAME_TYPES.KING,
+              hand: table.game.hands[player.seat],
+              selector: table.game.selectorSeat,
+              availableContracts,
+              gameNumber: table.game.gameNumber,
+              partyNumber: 1,
+              contractsUsed: table.game.contractsUsed[player.seat],
+            });
+          }
+          startSelectTimer(table);
+        } else {
+          // Hearts: start with passing or playing
+          for (const player of table.players) {
+            io.to(player.id).emit('startGame', {
+              gameType: GAME_TYPES.HEARTS,
+              hand: table.game.hands[player.seat],
+              passDirection: table.game.passDirection,
+              phase: table.game.phase,
+              currentPlayer: table.game.currentPlayer,
+            });
+          }
+          
+          if (table.game.phase === 'passing') {
+            startPassTimer(table);
+          } else if (table.game.phase === 'playing') {
+            setTimeout(() => autoPlayTwoOfClubs(table), 500);
+          }
         }
       }
       
@@ -695,7 +396,6 @@ io.on('connection', (socket) => {
         players: table.players.map(p => ({ name: p.name, seat: p.seat, connected: p.connected })),
       });
       
-      // Clean up empty tables
       if (table.players.length === 0 || table.players.every(p => !p.connected)) {
         table.cleanupTimer = setTimeout(() => {
           tables.delete(currentTableId);
@@ -708,15 +408,73 @@ io.on('connection', (socket) => {
     broadcastTablesList();
   });
 
+  socket.on('spectateTable', ({ tableId, playerName }) => {
+    const table = tables.get(tableId);
+    
+    if (!table) {
+      socket.emit('error', { message: 'Table not found' });
+      return;
+    }
+    
+    if (!table.game) {
+      socket.emit('error', { message: 'No game in progress to spectate' });
+      return;
+    }
+    
+    const result = table.addSpectator(socket.id, playerName?.trim() || 'Spectator');
+    
+    if (!result.success) {
+      socket.emit('error', { message: result.error });
+      return;
+    }
+    
+    socket.join(tableId);
+    currentTableId = tableId;
+    isSpectating = true;
+    
+    // Build spectator game state - they see all cards face up
+    const spectatorState = buildSpectatorState(table);
+    
+    socket.emit('spectateJoined', {
+      tableId,
+      gameType: table.gameType,
+      players: table.players.map(p => ({ name: p.name, seat: p.seat, connected: p.connected })),
+      gameState: spectatorState,
+    });
+    
+    // Notify players that a spectator joined
+    socket.to(tableId).emit('spectatorUpdate', {
+      spectatorCount: table.spectators.length,
+    });
+  });
+
+  socket.on('leaveSpectate', () => {
+    if (!currentTableId || !isSpectating) return;
+    
+    const table = tables.get(currentTableId);
+    if (table) {
+      table.removeSpectator(socket.id);
+      socket.leave(currentTableId);
+      
+      // Notify players
+      socket.to(currentTableId).emit('spectatorUpdate', {
+        spectatorCount: table.spectators.length,
+      });
+    }
+    
+    currentTableId = null;
+    isSpectating = false;
+  });
+
   // -------------------------------------------------------------------------
-  // GAME EVENTS
+  // HEARTS-SPECIFIC EVENTS
   // -------------------------------------------------------------------------
 
   socket.on('submitPass', ({ cards }) => {
     if (!currentTableId) return;
     
     const table = tables.get(currentTableId);
-    if (!table || !table.game) return;
+    if (!table || !table.game || table.gameType !== GAME_TYPES.HEARTS) return;
     
     const player = table.getPlayerBySocketId(socket.id);
     if (!player) return;
@@ -733,7 +491,6 @@ io.on('connection', (socket) => {
     if (result.allPassed) {
       clearPassTimer(table);
       
-      // Send updated hands to all players with pass/receive info for animation
       for (const p of table.players) {
         io.to(p.id).emit('cardsReceived', {
           hand: table.game.hands[p.seat],
@@ -744,10 +501,52 @@ io.on('connection', (socket) => {
         });
       }
       
-      // Auto-play 2 of clubs after animation completes (2.5 seconds)
       setTimeout(() => autoPlayTwoOfClubs(table), 2500);
     }
   });
+
+  // -------------------------------------------------------------------------
+  // KING-SPECIFIC EVENTS
+  // -------------------------------------------------------------------------
+
+  socket.on('selectContract', ({ contractType, contractName, trumpSuit }) => {
+    if (!currentTableId) return;
+    
+    const table = tables.get(currentTableId);
+    if (!table || !table.game || table.gameType !== GAME_TYPES.KING) return;
+    
+    const player = table.getPlayerBySocketId(socket.id);
+    if (!player) return;
+    
+    clearSelectTimer(table);
+    
+    const result = table.game.selectContract(player.seat, contractType, contractName, trumpSuit);
+    
+    if (!result.success) {
+      socket.emit('error', { message: result.error });
+      startSelectTimer(table);
+      return;
+    }
+    
+    // Broadcast contract selection to all players
+    io.to(currentTableId).emit('contractSelected', {
+      selectorSeat: player.seat,
+      contract: result.contract,
+      startingPlayer: result.startingPlayer,
+    });
+    
+    // Update game state for all players
+    for (const p of table.players) {
+      io.to(p.id).emit('updateGame', table.game.getStateForPlayer(p.seat));
+    }
+    
+    // Start turn timer
+    startTurnTimer(table);
+  });
+
+  // -------------------------------------------------------------------------
+  // COMMON GAME EVENTS
+  // -------------------------------------------------------------------------
 
   socket.on('playCard', ({ card }) => {
     if (!currentTableId) return;
@@ -768,7 +567,7 @@ io.on('connection', (socket) => {
       return;
     }
     
-    // Broadcast card played - if trick is complete, send lastTrick since currentTrick is now cleared
+    // Broadcast card played
     io.to(currentTableId).emit('cardPlayed', {
       seat: player.seat,
       card,
@@ -777,60 +576,24 @@ io.on('connection', (socket) => {
       winner: result.trickComplete ? result.winner : null,
     });
     
+    // Update spectators with all hands visible
+    updateSpectators(table);
+    
     if (result.trickComplete) {
-      // Delay trickEnd to allow animation to play (1.6 seconds)
       setTimeout(() => {
         io.to(currentTableId).emit('trickEnd', {
           winner: result.winner,
-          points: result.points,
+          points: result.points || 0,
           lastTrick: table.game.lastTrick,
         });
         
-        if (result.roundComplete) {
-          io.to(currentTableId).emit('roundEnd', {
-            roundScores: result.roundScores,
-            cumulativeScores: result.cumulativeScores,
-            moonShooter: result.moonShooter,
-            moonShotType: result.moonShotType,
-            gameOver: result.gameOver,
-            gameWinner: result.gameWinner,
-            pointCardsTaken: table.game.getPointCardsTaken(),
-          });
-          
-          if (result.gameOver) {
-            table.rematchVotes = {};
-            io.to(currentTableId).emit('gameEnd', {
-              winner: result.gameWinner,
-              finalScores: result.cumulativeScores,
-            });
-          } else {
-            // Auto-advance to next round after animation
-            // Animation: 700ms delay between players, 300ms per card, 1000ms final delay
-            // Worst case: ~14 point cards across 4 players = ~(14 * 300) + (3 * 700) + 1000 = ~7300ms
-            setTimeout(() => {
-              if (!table.game || table.game.phase !== 'roundEnd') return;
-              
-              table.game.startNextRound();
-              
-              for (const p of table.players) {
-                io.to(p.id).emit('startGame', {
-                  hand: table.game.hands[p.seat],
-                  passDirection: table.game.passDirection,
-                  phase: table.game.phase,
-                  currentPlayer: table.game.currentPlayer,
-                });
-              }
-              
-              // Start pass timer if in passing phase, otherwise auto-play 2 of clubs
-              if (table.game.phase === 'passing') {
-                startPassTimer(table);
-              } else if (table.game.phase === 'playing') {
-                setTimeout(() => autoPlayTwoOfClubs(table), 500);
-              }
-            }, 8000);
-          }
+        // Handle game/round completion
+        if (table.gameType === GAME_TYPES.KING && result.gameComplete) {
+          handleKingGameEnd(table, result);
+        } else if (table.gameType === GAME_TYPES.HEARTS && result.roundComplete) {
+          handleHeartsRoundEnd(table, result);
         } else {
-          // Update game state for next trick - delay to allow client animation
+          // Continue playing
           setTimeout(() => {
             for (const p of table.players) {
               io.to(p.id).emit('updateGame', table.game.getStateForPlayer(p.seat));
@@ -840,7 +603,6 @@ io.on('connection', (socket) => {
         }
       }, 500);
     } else {
-      // Update game state
       for (const p of table.players) {
         io.to(p.id).emit('updateGame', table.game.getStateForPlayer(p.seat));
       }
@@ -854,22 +616,40 @@ io.on('connection', (socket) => {
     const table = tables.get(currentTableId);
     if (!table || !table.game) return;
     
-    table.game.startNextRound();
-    
-    for (const p of table.players) {
-      io.to(p.id).emit('startGame', {
-        hand: table.game.hands[p.seat],
-        passDirection: table.game.passDirection,
-        phase: table.game.phase,
-        currentPlayer: table.game.currentPlayer,
-      });
-    }
-    
-    // Start pass timer if in passing phase, otherwise auto-play 2 of clubs
-    if (table.game.phase === 'passing') {
-      startPassTimer(table);
-    } else if (table.game.phase === 'playing') {
-      setTimeout(() => autoPlayTwoOfClubs(table), 500);
+    if (table.gameType === GAME_TYPES.KING) {
+      table.game.startNextGame();
+      
+      const availableContracts = table.game.getAvailableContracts(table.game.selectorSeat);
+      for (const p of table.players) {
+        io.to(p.id).emit('contractSelectionStart', {
+          gameType: GAME_TYPES.KING,
+          hand: table.game.hands[p.seat],
+          selector: table.game.selectorSeat,
+          availableContracts,
+          gameNumber: table.game.gameNumber,
+          partyNumber: 1,
+          contractsUsed: table.game.contractsUsed[p.seat],
+        });
+      }
+      startSelectTimer(table);
+    } else {
+      table.game.startNextRound();
+      
+      for (const p of table.players) {
+        io.to(p.id).emit('startGame', {
+          gameType: GAME_TYPES.HEARTS,
+          hand: table.game.hands[p.seat],
+          passDirection: table.game.passDirection,
+          phase: table.game.phase,
+          currentPlayer: table.game.currentPlayer,
+        });
+      }
+      
+      if (table.game.phase === 'passing') {
+        startPassTimer(table);
+      } else if (table.game.phase === 'playing') {
+        setTimeout(() => autoPlayTwoOfClubs(table), 500);
+      }
     }
   });
 
@@ -888,27 +668,47 @@ io.on('connection', (socket) => {
       votes: { ...table.rematchVotes },
     });
     
-    // Check if all voted yes
     const votes = Object.values(table.rematchVotes);
     if (votes.length === 4 && votes.every(v => v)) {
-      table.game = new HeartsGame();
+      // Reset game
+      if (table.gameType === GAME_TYPES.KING) {
+        table.game = new KingGame();
+      } else {
+        table.game = new HeartsGame(table.endingScore);
+      }
       table.game.deal();
       table.rematchVotes = {};
       
-      for (const p of table.players) {
-        io.to(p.id).emit('startGame', {
-          hand: table.game.hands[p.seat],
-          passDirection: table.game.passDirection,
-          phase: table.game.phase,
-          currentPlayer: table.game.currentPlayer,
-        });
-      }
-      
-      // Start pass timer if in passing phase, otherwise auto-play 2 of clubs
-      if (table.game.phase === 'passing') {
-        startPassTimer(table);
-      } else if (table.game.phase === 'playing') {
-        setTimeout(() => autoPlayTwoOfClubs(table), 500);
+      if (table.gameType === GAME_TYPES.KING) {
+        const availableContracts = table.game.getAvailableContracts(table.game.selectorSeat);
+        for (const p of table.players) {
+          io.to(p.id).emit('contractSelectionStart', {
+            gameType: GAME_TYPES.KING,
+            hand: table.game.hands[p.seat],
+            selector: table.game.selectorSeat,
+            availableContracts,
+            gameNumber: table.game.gameNumber,
+            partyNumber: 1,
+            contractsUsed: table.game.contractsUsed[p.seat],
+          });
+        }
+        startSelectTimer(table);
+      } else {
+        for (const p of table.players) {
+          io.to(p.id).emit('startGame', {
+            gameType: GAME_TYPES.HEARTS,
+            hand: table.game.hands[p.seat],
+            passDirection: table.game.passDirection,
+            phase: table.game.phase,
+            currentPlayer: table.game.currentPlayer,
+          });
+        }
+        
+        if (table.game.phase === 'passing') {
+          startPassTimer(table);
+        } else if (table.game.phase === 'playing') {
+          setTimeout(() => autoPlayTwoOfClubs(table), 500);
+        }
       }
     }
   });
@@ -931,7 +731,6 @@ io.on('connection', (socket) => {
     if (!text || text.trim().length === 0) return;
     if (text.length > 140) return;
     
-    // Only allow alphanumerics, common symbols, and Turkish characters
     const sanitized = text.replace(/[^a-zA-Z0-9çÇğĞıİöÖşŞüÜ\s.,!?;:'"()-@#$%&*+=]/g, '').trim();
     if (sanitized.length === 0) return;
     
@@ -979,6 +778,15 @@ io.on('connection', (socket) => {
     if (currentTableId) {
       const table = tables.get(currentTableId);
       if (table) {
+        // Handle spectator disconnect
+        if (isSpectating) {
+          table.removeSpectator(socket.id);
+          socket.to(currentTableId).emit('spectatorUpdate', {
+            spectatorCount: table.spectators.length,
+          });
+          return;
+        }
+        
         const player = table.removePlayer(socket.id);
         
         if (player) {
@@ -996,6 +804,8 @@ io.on('connection', (socket) => {
           if (table.players.length === 0 || table.players.every(p => !p.connected)) {
             table.cleanupTimer = setTimeout(() => {
               clearTurnTimer(table);
+              clearPassTimer(table);
+              clearSelectTimer(table);
               tables.delete(currentTableId);
               broadcastTablesList();
             }, 60000);
@@ -1010,14 +820,147 @@ io.on('connection', (socket) => {
 // HELPER FUNCTIONS
 // ============================================================================
 
+function buildSpectatorState(table) {
+  const game = table.game;
+  if (!game) return null;
+  
+  const state = {
+    gameType: table.gameType,
+    phase: game.phase,
+    currentPlayer: game.currentPlayer,
+    currentTrick: game.currentTrick || [],
+    trickNumber: game.trickNumber,
+    scores: game.scores,
+    // Spectators only see played cards, not hands
+  };
+  
+  if (table.gameType === GAME_TYPES.HEARTS) {
+    state.passDirection = game.passDirection;
+    state.heartsBroken = game.heartsBroken;
+    state.roundNumber = game.roundNumber;
+    state.cumulativeScores = game.cumulativeScores;
+    state.roundScores = game.roundScores;
+    state.pointCardsTaken = game.getPointCardsTaken ? game.getPointCardsTaken() : null;
+  } else if (table.gameType === GAME_TYPES.KING) {
+    state.currentContract = game.contract;
+    state.selectorSeat = game.selectorSeat;
+    state.trumpSuit = game.contract?.trumpSuit;
+    state.gameNumber = game.gameNumber;
+    state.partyScores = game.partyScores;
+    state.lastTrickCards = game.lastTrick;
+    state.tricksTaken = game.tricksTaken?.map(t => t.length);
+    state.contractHistory = game.contractHistory;
+    state.cumulativeScores = game.cumulativeScores;
+    state.pointCardsTaken = game.getPenaltyCardsTaken ? game.getPenaltyCardsTaken() : null;
+  }
+  
+  return state;
+}
+
+function updateSpectators(table) {
+  if (!table.spectators.length) return;
+  
+  const spectatorState = buildSpectatorState(table);
+  for (const spectator of table.spectators) {
+    io.to(spectator.id).emit('spectatorUpdate', {
+      gameState: spectatorState,
+    });
+  }
+}
+
 function broadcastTablesList() {
+  // Broadcast all tables (waiting and in-progress) so clients can decide what to show
   const tableList = [];
   for (const [id, table] of tables) {
-    if (table.players.length < 4 && !table.game) {
-      tableList.push(table.getPublicInfo());
-    }
+    tableList.push(table.getPublicInfo());
   }
+  // Sort by createdAt descending (newest first)
+  tableList.sort((a, b) => b.createdAt - a.createdAt);
   io.emit('tablesList', tableList);
+}
+
+function handleHeartsRoundEnd(table, result) {
+  io.to(table.id).emit('roundEnd', {
+    roundScores: result.roundScores,
+    cumulativeScores: result.cumulativeScores,
+    moonShooter: result.moonShooter,
+    moonShotType: result.moonShotType,
+    gameOver: result.gameOver,
+    gameWinner: result.gameWinner,
+    pointCardsTaken: table.game.getPointCardsTaken(),
+  });
+  
+  if (result.gameOver) {
+    table.rematchVotes = {};
+    io.to(table.id).emit('gameEnd', {
+      winner: result.gameWinner,
+      finalScores: result.cumulativeScores,
+    });
+  } else {
+    setTimeout(() => {
+      if (!table.game || table.game.phase !== 'roundEnd') return;
+      
+      table.game.startNextRound();
+      
+      for (const p of table.players) {
+        io.to(p.id).emit('startGame', {
+          gameType: GAME_TYPES.HEARTS,
+          hand: table.game.hands[p.seat],
+          passDirection: table.game.passDirection,
+          phase: table.game.phase,
+          currentPlayer: table.game.currentPlayer,
+        });
+      }
+      
+      if (table.game.phase === 'passing') {
+        startPassTimer(table);
+      } else if (table.game.phase === 'playing') {
+        setTimeout(() => autoPlayTwoOfClubs(table), 500);
+      }
+    }, 8000);
+  }
+}
+
+function handleKingGameEnd(table, result) {
+  io.to(table.id).emit('kingGameEnd', {
+    gameScores: result.gameScores,
+    cumulativeScores: result.cumulativeScores,
+    partyOver: result.partyOver,
+    winners: result.winners,
+    penaltyCardsTaken: table.game.getPenaltyCardsTaken(),
+    contract: table.game.contract,
+    gameNumber: table.game.gameNumber,
+  });
+  
+  if (result.partyOver) {
+    table.rematchVotes = {};
+    io.to(table.id).emit('gameEnd', {
+      gameType: GAME_TYPES.KING,
+      winners: result.winners,
+      finalScores: result.cumulativeScores,
+    });
+  } else {
+    // Auto-advance to next game after delay
+    setTimeout(() => {
+      if (!table.game || table.game.phase !== 'gameEnd') return;
+      
+      table.game.startNextGame();
+      
+      const availableContracts = table.game.getAvailableContracts(table.game.selectorSeat);
+      for (const p of table.players) {
+        io.to(p.id).emit('contractSelectionStart', {
+          gameType: GAME_TYPES.KING,
+          hand: table.game.hands[p.seat],
+          selector: table.game.selectorSeat,
+          availableContracts,
+          gameNumber: table.game.gameNumber,
+          partyNumber: 1,
+          contractsUsed: table.game.contractsUsed[p.seat],
+        });
+      }
+      startSelectTimer(table);
+    }, 5000);
+  }
 }
 
 function autoPlayTwoOfClubs(table) {
@@ -1027,7 +970,6 @@ function autoPlayTwoOfClubs(table) {
   const currentPlayer = table.game.currentPlayer;
   const twoOfClubs = { suit: 'clubs', rank: '2', display: '2♣' };
   
-  // Find and play the 2 of clubs
   const result = table.game.playCard(currentPlayer, twoOfClubs);
   
   if (result.success) {
@@ -1045,13 +987,86 @@ function autoPlayTwoOfClubs(table) {
       autoPlayed: true,
     });
     
-    // Update game state for all players
     for (const p of table.players) {
       io.to(p.id).emit('updateGame', table.game.getStateForPlayer(p.seat));
     }
     
-    // Start timer for next player
     startTurnTimer(table);
+  }
+}
+
+// Send current game state to a player who is taking over a disconnected seat
+function sendGameStateToPlayer(table, socketId, seat) {
+  if (!table.game) return;
+  
+  if (table.gameType === GAME_TYPES.KING) {
+    if (table.game.phase === 'selecting') {
+      // Contract selection phase
+      const availableContracts = table.game.getAvailableContracts(table.game.selectorSeat);
+      io.to(socketId).emit('contractSelectionStart', {
+        gameType: GAME_TYPES.KING,
+        hand: table.game.hands[seat],
+        selector: table.game.selectorSeat,
+        availableContracts,
+        gameNumber: table.game.gameNumber,
+        partyNumber: table.game.partyNumber || 1,
+        contractsUsed: table.game.contractsUsed[seat],
+        timeoutAt: table.selectTimeoutAt,
+      });
+    } else if (table.game.phase === 'playing') {
+      // Playing phase - send full game state
+      io.to(socketId).emit('contractSelected', {
+        gameType: GAME_TYPES.KING,
+        hand: table.game.hands[seat],
+        contract: table.game.currentContract.name,
+        selector: table.game.selectorSeat,
+        trumpSuit: table.game.trumpSuit,
+        currentPlayer: table.game.currentPlayer,
+        gameNumber: table.game.gameNumber,
+        partyNumber: table.game.partyNumber || 1,
+        contractsUsed: table.game.contractsUsed[seat],
+      });
+      // Send current trick/scores state
+      io.to(socketId).emit('updateGame', table.game.getStateForPlayer(seat));
+      // Send timer if active
+      if (table.turnTimeoutAt) {
+        io.to(socketId).emit('turnTimerStart', {
+          timeoutAt: table.turnTimeoutAt,
+          currentPlayer: table.game.currentPlayer,
+        });
+      }
+    }
+  } else {
+    // Hearts game
+    if (table.game.phase === 'passing') {
+      io.to(socketId).emit('startGame', {
+        gameType: GAME_TYPES.HEARTS,
+        hand: table.game.hands[seat],
+        passDirection: table.game.passDirection,
+        phase: table.game.phase,
+        currentPlayer: table.game.currentPlayer,
+      });
+      if (table.passTimeoutAt) {
+        io.to(socketId).emit('passTimerStart', {
+          timeoutAt: table.passTimeoutAt,
+        });
+      }
+    } else if (table.game.phase === 'playing') {
+      io.to(socketId).emit('startGame', {
+        gameType: GAME_TYPES.HEARTS,
+        hand: table.game.hands[seat],
+        passDirection: table.game.passDirection,
+        phase: table.game.phase,
+        currentPlayer: table.game.currentPlayer,
+      });
+      io.to(socketId).emit('updateGame', table.game.getStateForPlayer(seat));
+      if (table.turnTimeoutAt) {
+        io.to(socketId).emit('turnTimerStart', {
+          timeoutAt: table.turnTimeoutAt,
+          currentPlayer: table.game.currentPlayer,
+        });
+      }
+    }
   }
 }
 
@@ -1063,21 +1078,18 @@ function startTurnTimer(table) {
   const currentPlayer = table.game.currentPlayer;
   const turnStartTime = Date.now();
   const turnDuration = 30000;
-  const warningTime = 20000; // Warning at 10 seconds remaining (30 - 10 = 20)
+  const warningTime = 20000;
   
   io.to(table.id).emit('turnStart', {
     player: currentPlayer,
     timeoutAt: turnStartTime + turnDuration,
   });
   
-  // Warning timer at 10 seconds remaining
   table.turnWarningTimer = setTimeout(() => {
     if (!table.game || table.game.phase !== 'playing') return;
     if (table.game.currentPlayer !== currentPlayer) return;
     
-    io.to(table.id).emit('timerWarning', {
-      player: currentPlayer,
-    });
+    io.to(table.id).emit('timerWarning', { player: currentPlayer });
   }, warningTime);
   
   table.turnTimer = setTimeout(() => {
@@ -1110,58 +1122,18 @@ function startTurnTimer(table) {
       });
       
       if (result.trickComplete) {
-        // Delay trickEnd to allow animation to play (1.6 seconds)
         setTimeout(() => {
           io.to(table.id).emit('trickEnd', {
             winner: result.winner,
-            points: result.points,
+            points: result.points || 0,
             lastTrick: table.game.lastTrick,
           });
           
-          if (result.roundComplete) {
-            io.to(table.id).emit('roundEnd', {
-              roundScores: result.roundScores,
-              cumulativeScores: result.cumulativeScores,
-              moonShooter: result.moonShooter,
-              moonShotType: result.moonShotType,
-              gameOver: result.gameOver,
-              gameWinner: result.gameWinner,
-              pointCardsTaken: table.game.getPointCardsTaken(),
-            });
-            
-            if (result.gameOver) {
-              table.rematchVotes = {};
-              io.to(table.id).emit('gameEnd', {
-                winner: result.gameWinner,
-                finalScores: result.cumulativeScores,
-              });
-            } else {
-              // Auto-advance to next round after animation
-              // Animation: 700ms delay between players, 300ms per card, 1000ms final delay
-              setTimeout(() => {
-                if (!table.game || table.game.phase !== 'roundEnd') return;
-                
-                table.game.startNextRound();
-                
-                for (const p of table.players) {
-                  io.to(p.id).emit('startGame', {
-                    hand: table.game.hands[p.seat],
-                    passDirection: table.game.passDirection,
-                    phase: table.game.phase,
-                    currentPlayer: table.game.currentPlayer,
-                  });
-                }
-                
-                // Start pass timer if in passing phase, otherwise auto-play 2 of clubs
-                if (table.game.phase === 'passing') {
-                  startPassTimer(table);
-                } else if (table.game.phase === 'playing') {
-                  setTimeout(() => autoPlayTwoOfClubs(table), 500);
-                }
-              }, 8000);
-            }
+          if (table.gameType === GAME_TYPES.KING && result.gameComplete) {
+            handleKingGameEnd(table, result);
+          } else if (table.gameType === GAME_TYPES.HEARTS && result.roundComplete) {
+            handleHeartsRoundEnd(table, result);
           } else {
-            // Delay to allow client animation
             setTimeout(() => {
               for (const p of table.players) {
                 io.to(p.id).emit('updateGame', table.game.getStateForPlayer(p.seat));
@@ -1194,7 +1166,7 @@ function clearTurnTimer(table) {
 function startPassTimer(table) {
   clearPassTimer(table);
   
-  const passDuration = 30000; // 30 seconds for pass phase
+  const passDuration = 30000;
   const passStartTime = Date.now();
   table.passTimeoutAt = passStartTime + passDuration;
   
@@ -1205,19 +1177,13 @@ function startPassTimer(table) {
   table.passTimer = setTimeout(() => {
     if (!table.game || table.game.phase !== 'passing') return;
     
-    // Auto-submit passes for any player who hasn't submitted
     let exchangeInfo = null;
     
     for (let seat = 0; seat < 4; seat++) {
       if (table.game.passes[seat] === undefined) {
         const hand = table.game.hands[seat];
-        const alreadySelected = []; // In future could track partial selections
-        const needed = 3 - alreadySelected.length;
-        
-        // Randomly select cards from remaining hand
-        const available = hand.filter(c => !alreadySelected.some(s => cardEquals(s, c)));
-        const shuffled = [...available].sort(() => Math.random() - 0.5);
-        const autoCards = [...alreadySelected, ...shuffled.slice(0, needed)];
+        const shuffled = [...hand].sort(() => Math.random() - 0.5);
+        const autoCards = shuffled.slice(0, 3);
         
         const result = table.game.submitPass(seat, autoCards);
         if (result.exchangeInfo) {
@@ -1231,9 +1197,7 @@ function startPassTimer(table) {
       }
     }
     
-    // After auto-passes, executeCardExchange was called by submitPass (phase is now 'playing')
     if (table.game.phase === 'playing') {
-      // Send updated hands to all players with pass/receive info for animation
       for (const p of table.players) {
         io.to(p.id).emit('cardsReceived', {
           hand: table.game.hands[p.seat],
@@ -1244,7 +1208,6 @@ function startPassTimer(table) {
         });
       }
       
-      // Auto-play 2 of clubs after animation completes (2.5 seconds)
       setTimeout(() => autoPlayTwoOfClubs(table), 2500);
     }
   }, passDuration);
@@ -1258,16 +1221,79 @@ function clearPassTimer(table) {
   }
 }
 
+function startSelectTimer(table) {
+  clearSelectTimer(table);
+  
+  if (!table.game || table.game.phase !== 'selecting') return;
+  
+  const selectDuration = 45000;  // 45 seconds for contract selection
+  const selectStartTime = Date.now();
+  table.selectTimeoutAt = selectStartTime + selectDuration;
+  
+  io.to(table.id).emit('selectTimerStart', {
+    timeoutAt: table.selectTimeoutAt,
+    selectorSeat: table.game.selectorSeat,
+  });
+  
+  table.selectTimer = setTimeout(() => {
+    if (!table.game || table.game.phase !== 'selecting') return;
+    
+    const selectorSeat = table.game.selectorSeat;
+    const usage = table.game.contractsUsed[selectorSeat];
+    
+    // Auto-select: prefer penalty if available, otherwise trump
+    let contractType, contractName, trumpSuit;
+    
+    if (usage.penalties < 3) {
+      contractType = CONTRACT_TYPES.PENALTY;
+      // Pick a random available penalty
+      const penalties = Object.values(PENALTY_CONTRACTS);
+      contractName = penalties[Math.floor(Math.random() * penalties.length)];
+    } else {
+      contractType = CONTRACT_TYPES.TRUMP;
+      const suits = ['spades', 'hearts', 'diamonds', 'clubs'];
+      trumpSuit = suits[Math.floor(Math.random() * suits.length)];
+    }
+    
+    const result = table.game.selectContract(selectorSeat, contractType, contractName, trumpSuit);
+    
+    if (result.success) {
+      io.to(table.id).emit('contractSelected', {
+        selectorSeat,
+        contract: result.contract,
+        startingPlayer: result.startingPlayer,
+        autoSelected: true,
+      });
+      
+      for (const p of table.players) {
+        io.to(p.id).emit('updateGame', table.game.getStateForPlayer(p.seat));
+      }
+      
+      startTurnTimer(table);
+    }
+  }, selectDuration);
+}
+
+function clearSelectTimer(table) {
+  if (table.selectTimer) {
+    clearTimeout(table.selectTimer);
+    table.selectTimer = null;
+    table.selectTimeoutAt = null;
+  }
+}
+
 // ============================================================================
 // START SERVER
 // ============================================================================
 
 const PORT = process.env.PORT || 3000;
 
-// Periodic cleanup of empty tables (every 60 seconds)
 setInterval(() => {
   for (const [tableId, table] of tables) {
     if (table.players.length === 0 || table.players.every(p => !p.connected)) {
+      clearTurnTimer(table);
+      clearPassTimer(table);
+      clearSelectTimer(table);
       tables.delete(tableId);
       console.log(`Cleaned up empty table: ${tableId}`);
     }
@@ -1278,3 +1304,6 @@ setInterval(() => {
 httpServer.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
+
+// Export for test-bots
+export { tables };

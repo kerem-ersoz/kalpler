@@ -12,7 +12,13 @@
     "start": "node server/index.js",
     "test:bots": "node server/test-bots.js",
     "test:bots:auto": "node server/test-bots.js --auto",
-    "test:bots:fast": "node server/test-bots.js --auto --fast"
+    "test:bots:fast": "node server/test-bots.js --auto --fast",
+    "test:bots:king": "node server/test-bots-king.js",
+    "test:bots:king:auto": "node server/test-bots-king.js --auto",
+    "test:bots:king:fast": "node server/test-bots-king.js --auto --fast",
+    "test:bots:hearts": "node server/test-bots.js",
+    "test:bots:hearts:auto": "node server/test-bots.js --auto",
+    "test:bots:hearts:fast": "node server/test-bots.js --auto --fast"
   },
   "keywords": ["hearts", "card-game", "multiplayer", "socket.io"],
   "author": "",

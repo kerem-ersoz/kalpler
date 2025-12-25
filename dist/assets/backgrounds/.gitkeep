@@ -1,0 +1,7 @@
+# Place custom background images here
+# Supported formats: .png, .jpg, .webp, .svg
+#
+# Available background slots:
+# - table.png        : Game table background
+# - lobby.png        : Lobby screen background
+# - felt.png         : Card playing area texture

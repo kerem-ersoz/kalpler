@@ -15,6 +15,7 @@
   justify-content: center;
   align-items: center;
   padding: 0.35rem 2rem;
+  min-height: 3rem;
   background: transparent;
 }
 
@@ -49,10 +50,10 @@
 
 .tableId {
   color: #d3d3d3;
-  font-size: 0.5rem;
+  font-size: 0.375rem;
   font-weight: 600;
   text-transform: capitalize;
-  -webkit-text-stroke: 2px black;
+  -webkit-text-stroke: 1.5px black;
   paint-order: stroke fill;
 }
 
@@ -106,8 +107,8 @@
 
 .versionInfo {
   color: #d3d3d3;
-  font-size: 0.5rem;
-  -webkit-text-stroke: 2px black;
+  font-size: 0.375rem;
+  -webkit-text-stroke: 1.5px black;
   paint-order: stroke fill;
 }
 
@@ -205,6 +206,7 @@
   display: flex;
   padding: 0.36rem;
   gap: 1rem;
+  overflow: hidden;
 }
 
 .tableArea {
@@ -212,13 +214,15 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: flex-start;
+  justify-content: center;
+  overflow: hidden;
 }
 
 .table {
   position: relative;
   width: 422px;
   height: 569px;
+  overflow: hidden;
   background: 
     url('/kalpler/assets/backgrounds/table.png?v=2') center/100% 100% no-repeat,
     radial-gradient(ellipse, #2d5a27 0%, #1e3d1a 100%);
@@ -291,7 +295,8 @@
   background: transparent;
   border-radius: 0;
   gap: 0.05rem;
-  min-width: 70px;
+  width: 90px;
+  max-width: 90px;
   box-sizing: border-box;
 }
 
@@ -301,6 +306,40 @@
   font-size: 0.51rem;
   -webkit-text-stroke: 2px black;
   paint-order: stroke fill;
+  white-space: nowrap;
+}
+
+.floatingScore {
+  position: absolute;
+  font-weight: 600;
+  font-size: 0.51rem;
+  color: #d3d3d3;
+  -webkit-text-stroke: 2px black;
+  paint-order: stroke fill;
+  opacity: 0;
+  pointer-events: none;
+  z-index: 100;
+  transform: translateY(0);
+  transition: none;
+}
+
+.floatingScoreActive {
+  opacity: 1;
+  animation: floatUp 4000ms ease-out forwards;
+}
+
+@keyframes floatUp {
+  0% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  70% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-50px);
+  }
 }
 
 .playerTimerBar {
@@ -422,10 +461,12 @@
 }
 
 .playerPointCards {
+  position: absolute;
   display: flex;
   margin-top: 0.125rem;
   max-width: 200px;
   justify-content: flex-start;
+  top: 100%;
 }
 
 .playerPointCard {
@@ -446,6 +487,7 @@
 
 .playerName.currentTurn {
   text-decoration: underline;
+  text-decoration-thickness: 1.2px;
   text-underline-offset: 2px;
 }
 
@@ -1216,4 +1258,228 @@
   left: 50%;
   transform: translateX(-50%);
   pointer-events: none;
+}
+
+/* King contract selection overlay */
+.contractSelectionOverlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 150px;
+  z-index: 100;
+}
+
+.contractSelectionBox {
+  background: #f5f5dc;
+  border: 2px solid #8b4513;
+  border-radius: 1px;
+  padding: 1.05rem;
+  max-width: 350px;
+  width: 90%;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5);
+}
+
+.contractSelectionBox h3 {
+  text-align: center;
+  color: #333;
+  margin: 0 0 0.7rem 0;
+  font-size: 0.84rem;
+}
+
+.contractGrid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.52rem;
+}
+
+.contractButton {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  position: relative;
+  padding: 0.52rem;
+  border: 2px solid #c0c0c0;
+  border-radius: 1px;
+  background: #fafae0;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.contractButton:hover:not(.contractDisabled) {
+  border-color: #e74c3c;
+  background: rgba(231, 76, 60, 0.1);
+  transform: translateY(-2px);
+}
+
+.contractDisabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  background: #d0d0d0;
+  border-color: #999;
+}
+
+.contractUsage {
+  position: absolute;
+  top: 2px;
+  right: 4px;
+  font-size: 0.5rem;
+  color: #666;
+}
+
+.contractButton.trumpButton {
+  grid-column: span 2;
+  background: linear-gradient(135deg, #ffd700 0%, #ffec8b 100%);
+}
+
+.contractName {
+  font-weight: 600;
+  font-size: 0.7rem;
+  color: #333;
+}
+
+.contractDesc {
+  font-size: 0.52rem;
+  color: #666;
+  text-align: center;
+  margin-top: 0.17rem;
+}
+
+.trumpSuitSelection {
+  margin-top: 0.7rem;
+  padding-top: 0.7rem;
+  border-top: 1px solid #c0c0c0;
+}
+
+.trumpSuitSelection h4 {
+  text-align: center;
+  margin: 0 0 0.52rem 0;
+  color: #333;
+  font-size: 0.7rem;
+}
+
+.suitButtons {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.35rem;
+}
+
+.suitButton {
+  padding: 0.35rem;
+  border: 2px solid #c0c0c0;
+  border-radius: 1px;
+  background: #fafae0;
+  cursor: pointer;
+  font-size: 0.63rem;
+  transition: all 0.2s;
+}
+
+.suitButton:hover:not(.suitDisabled) {
+  border-color: #e74c3c;
+}
+
+.suitDisabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  background: #d0d0d0;
+}
+
+.suitUsage {
+  font-size: 0.45rem;
+  color: #666;
+  display: block;
+  margin-top: 2px;
+}
+
+.suitButton.redSuit {
+  color: #c0392b;
+}
+
+.suitButton.selected {
+  border-color: #e74c3c;
+  background: rgba(231, 76, 60, 0.2);
+}
+
+.confirmTrumpButton {
+  width: 100%;
+  padding: 0.52rem;
+  background: #e74c3c;
+  color: white;
+  border: none;
+  border-radius: 1px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.confirmTrumpButton:hover {
+  background: #c0392b;
+}
+
+/* Waiting for contract selection overlay */
+.waitingForContractOverlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+}
+
+/* Waiting for contract selection text */
+.waitingForContractText {
+  color: #d3d3d3;
+  font-size: 0.9rem;
+  font-weight: 700;
+  -webkit-text-stroke: 2px black;
+  paint-order: stroke fill;
+  text-align: center;
+}
+
+/* Current contract display - above game number in center */
+.currentContractDisplay {
+  position: absolute;
+  top: calc(50% - 45px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 0;
+}
+
+.contractLabel {
+  color: #d3d3d3;
+  font-size: 0.8rem;
+  font-weight: 700;
+  -webkit-text-stroke: 2px black;
+  paint-order: stroke fill;
+}
+
+/* Spectator styles */
+.spectatorBadge {
+  background: #3b82f6;
+  color: white;
+  padding: 0.19rem 0.56rem;
+  border-radius: 1px;
+  font-size: 0.375rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  margin-bottom: 0.19rem;
+}
+
+/* Spectator contract display - above game number */
+.spectatorContractDisplay {
+  position: absolute;
+  top: calc(50% - 45px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 0;
 }

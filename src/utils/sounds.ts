@@ -25,6 +25,7 @@ export const SOUND_ASSETS = {
   trickWinPoints: `${BASE_PATH}sounds/trick-win-points.mp3`,
   trickWinQueen: `${BASE_PATH}sounds/trick-win-queen.mp3`,
   pointCounter: `${BASE_PATH}sounds/point-counter.mp3`,
+  moonShot: `${BASE_PATH}sounds/moon-shot.mp3`,
 } as const;
 
 export type SoundName = keyof typeof SOUND_ASSETS;

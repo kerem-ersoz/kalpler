@@ -12,15 +12,18 @@
 }
 
 .title {
-  font-size: 1.86rem;
-  color: #ffffff;
+  font-size: 2.07rem;
+  color: #f5f5dc;
   margin-bottom: 0.45rem;
   font-weight: 700;
   letter-spacing: 0.1em;
   -webkit-text-stroke: 3px black;
   paint-order: stroke fill;
-  text-shadow: 3px 3px 0 #e74c3c, 5px 5px 0 #ffd700;
+  text-shadow: 4px 4px 0 yellow, 7px 7px  #e74c3c;
   text-align: center;
+  /* background: rgba(0, 0, 0, 0.3); */
+  padding: 0.5rem 100rem;
+  border-radius: 1px;
 }
 
 .subtitle {
@@ -32,29 +35,30 @@
 .content {
   display: flex;
   flex-direction: column;
-  gap: 1.8rem;
+  gap: 1.35rem;
   width: 100%;
-  max-width: 540px;
+  max-width: 405px;
+  margin-top: 40px;
 }
 
 .nameSection {
   display: flex;
   flex-direction: column;
-  gap: 0.45rem;
+  gap: 0.34rem;
 }
 
 .nameSection label {
   color: #8892b0;
-  font-size: 0.81rem;
+  font-size: 0.61rem;
 }
 
 .nameInput {
-  padding: 0.675rem 0.9rem;
+  padding: 0.5rem 0.675rem;
   border: 2px solid #c0c0c0;
   border-radius: 1px;
   background: #f5f5dc;
   color: #333333;
-  font-size: 0.9rem;
+  font-size: 0.675rem;
   outline: none;
   transition: border-color 0.2s;
 }
@@ -63,18 +67,61 @@
   border-color: #999999;
 }
 
+.gameTypeSection {
+  display: flex;
+  flex-direction: column;
+  gap: 0.34rem;
+}
+
+.gameTypeSection label {
+  color: #8892b0;
+  font-size: 0.61rem;
+}
+
+.gameTypeButtons {
+  display: flex;
+  gap: 0.34rem;
+}
+
+.gameTypeButton {
+  flex: 1;
+  padding: 0.5rem 0.675rem;
+  border: 2px solid #c0c0c0;
+  border-radius: 1px;
+  background: #d3d3d3;
+  color: #333333;
+  font-size: 0.675rem;
+  cursor: pointer;
+  transition: border-color 0.2s, background-color 0.2s, transform 0.1s;
+}
+
+.gameTypeButton:hover {
+  border-color: #999999;
+}
+
+.gameTypeButton:active {
+  transform: scale(0.95);
+}
+
+.gameTypeButton.active {
+  text-decoration:wavy underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+
+}
+
 .actions {
   display: flex;
-  gap: 0.9rem;
+  gap: 0.675rem;
 }
 
 .createButton,
 .joinButton {
   flex: 1;
-  padding: 0.9rem;
+  padding: 0.675rem;
   border: none;
   border-radius: 1px;
-  font-size: 0.9rem;
+  font-size: 0.675rem;
   font-weight: 600;
   cursor: pointer;
   transition: transform 0.2s, background-color 0.2s;
@@ -90,6 +137,10 @@
   transform: translateY(-2px);
 }
 
+.createButton:active:not(:disabled) {
+  transform: scale(0.95);
+}
+
 .createButton:disabled,
 .joinButton:disabled {
   opacity: 0.5;
@@ -99,7 +150,7 @@
 .tablesSection {
   background: #f5f5dc;
   border-radius: 1px;
-  padding: 1.35rem;
+  padding: 1rem;
   border: 1px solid #c0c0c0;
 }
 
@@ -107,12 +158,12 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 0.9rem;
+  margin-bottom: 0.675rem;
 }
 
 .tablesTitle {
   color: #333333;
-  font-size: 1.08rem;
+  font-size: 0.81rem;
   margin: 0;
 }
 
@@ -120,22 +171,26 @@
   background: #e74c3c;
   border: none;
   color: white;
-  padding: 0.45rem 0.9rem;
+  padding: 0.34rem 0.675rem;
   border-radius: 1px;
   cursor: pointer;
-  font-size: 0.81rem;
-  transition: background-color 0.2s;
+  font-size: 0.61rem;
+  transition: background-color 0.2s, transform 0.1s;
 }
 
 .refreshButton:hover {
   background: #c0392b;
 }
 
+.refreshButton:active {
+  transform: scale(0.95);
+}
+
 .tablesList {
   display: flex;
   flex-direction: column;
-  gap: 0.675rem;
-  max-height: 300px;
+  gap: 0.5rem;
+  max-height: 200px;
   overflow-y: auto;
 }
 
@@ -143,57 +198,71 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 0.9rem;
+  padding: 0.675rem;
   background: #fafae0;
   border-radius: 1px;
   border: 1px solid #c0c0c0;
 }
 
+.tableItem.inProgress {
+  background: #fafae0;
+  border-color: #c0c0c0;
+}
+
 .tableInfo {
   display: flex;
   flex-direction: column;
-  gap: 0.225rem;
+  gap: 0.17rem;
 }
 
 .tableHeader {
   display: flex;
   align-items: center;
-  gap: 0.675rem;
+  gap: 0.5rem;
 }
 
 .tableId {
   color: #8b6914;
   font-weight: 600;
-  font-size: 0.99rem;
+  font-size: 0.74rem;
   text-transform: capitalize;
 }
 
 .gameType {
   color: #e74c3c;
-  font-size: 0.765rem;
+  font-size: 0.57rem;
   font-weight: 500;
-  padding: 0.135rem 0.45rem;
+  padding: 0.1rem 0.34rem;
   background: rgba(231, 76, 60, 0.15);
   border-radius: 1px;
 }
 
 .scoreLimit {
   color: #666666;
-  font-size: 0.72rem;
-  padding: 0.135rem 0.45rem;
+  font-size: 0.54rem;
+  padding: 0.1rem 0.34rem;
   background: rgba(128, 128, 128, 0.2);
+  border-radius: 1px;
+}
+
+.inGameBadge {
+  color: #3b82f6;
+  font-size: 0.54rem;
+  font-weight: 600;
+  padding: 0.1rem 0.34rem;
+  background: rgba(59, 130, 246, 0.2);
   border-radius: 1px;
 }
 
 .tablePlayers {
   color: #666666;
-  font-size: 0.765rem;
+  font-size: 0.57rem;
 }
 
 .joinButton {
   background: #e74c3c;
   color: white;
-  padding: 0.45rem 1.35rem;
+  padding: 0.34rem 1rem;
   flex: none;
 }
 
@@ -201,10 +270,47 @@
   background: #c0392b;
 }
 
+.joinButton:active:not(:disabled) {
+  transform: scale(0.95);
+}
+
+.spectateButton {
+  background: #3b82f6;
+  color: white;
+  padding: 0.34rem 1rem;
+  flex: none;
+  border: none;
+  border-radius: 1px;
+  font-size: 0.675rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 0.2s, background-color 0.2s;
+}
+
+.spectateButton:hover:not(:disabled) {
+  background: #2563eb;
+}
+
+.spectateButton:active:not(:disabled) {
+  transform: scale(0.95);
+}
+
+.spectateButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.buttonGroup {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
 .emptyMessage {
   color: #666666;
   text-align: center;
-  padding: 1.8rem;
+  padding: 1.35rem;
+  font-size: 0.675rem;
 }
 
 .joinForm {
@@ -230,7 +336,7 @@
 
 .connectionStatus {
   position: fixed;
-  top: 1rem;
+  bottom: 1rem;
   right: 1rem;
   display: flex;
   align-items: center;
@@ -248,4 +354,132 @@
 
 .statusDot.connected {
   background: #2ecc71;
+}
+
+/* Score selection modal */
+.modalOverlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+.modal {
+  background: #f5f5dc;
+  border: 3px solid #8b4513;
+  border-radius: 1px;
+  padding: 1.5rem;
+  min-width: 280px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
+.modalTitle {
+  text-align: center;
+  color: #333;
+  margin: 0 0 1rem 0;
+  font-size: 1.1rem;
+}
+
+.sliderContainer {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.slider {
+  flex: 1;
+  height: 8px;
+  -webkit-appearance: none;
+  appearance: none;
+  background: #c0c0c0;
+  border-radius: 1px;
+  outline: none;
+}
+
+.slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  background: #e74c3c;
+  border-radius: 1px;
+  cursor: pointer;
+}
+
+.slider::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  background: #e74c3c;
+  border-radius: 1px;
+  cursor: pointer;
+  border: none;
+}
+
+.sliderValue {
+  font-size: 1.2rem;
+  font-weight: 600;
+  color: #333;
+  min-width: 40px;
+  text-align: center;
+}
+
+.modalButtons {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: center;
+}
+
+.modalCancelButton {
+  padding: 0.5rem 1rem;
+  background: #999;
+  color: white;
+  border: none;
+  border-radius: 1px;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: background 0.2s, transform 0.1s;
+}
+
+.modalCancelButton:hover {
+  background: #777;
+}
+
+.modalCancelButton:active {
+  transform: scale(0.95);
+}
+
+.modalConfirmButton {
+  padding: 0.5rem 1rem;
+  background: #e74c3c;
+  color: white;
+  border: none;
+  border-radius: 1px;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: background 0.2s, transform 0.1s;
+}
+
+.modalConfirmButton:hover {
+  background: #c0392b;
+}
+
+.modalConfirmButton:active {
+  transform: scale(0.95);
+}
+
+.versionInfo {
+  position: fixed;
+  bottom: 0.5rem;
+  left: 0.5rem;
+  color: #d3d3d3;
+  font-size: 0.375rem;
+  -webkit-text-stroke: 1.5px black;
+  paint-order: stroke fill;
 }

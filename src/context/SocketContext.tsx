@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useState, useRef, type ReactNode } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { useGame } from './GameContext';
-import type { Card, TrickCard, Player, ChatMessage, PassDirection, GamePhase } from '../types/game';
+import type { Card, TrickCard, Player, PassDirection, GamePhase, GameType, KingContract } from '../types/game';
 import { playAssetSound, preloadSoundAssets } from '../utils/sounds';
 
 // Preload sound assets on module load
@@ -271,11 +271,79 @@ function playQueenOfSpadesTrickSoundFallback() {
   }
 }
 
-// Play the appropriate trick win sound based on cards in the trick
-function playTrickWinSound(trick: TrickCard[]) {
+// Play the appropriate trick win sound based on cards in the trick and game context
+interface TrickSoundContext {
+  gameType: 'hearts' | 'king';
+  contract?: { type: string; name?: string; trumpSuit?: string } | null;
+}
+
+function playTrickWinSound(trick: TrickCard[], context?: TrickSoundContext) {
   const hasQueenOfSpades = trick.some(t => t.card.suit === 'spades' && t.card.rank === 'Q');
   const hasHearts = trick.some(t => t.card.suit === 'hearts');
+  const hasKings = trick.some(t => t.card.rank === 'K');
+  const hasJacks = trick.some(t => t.card.rank === 'J');
+  const hasQueens = trick.some(t => t.card.rank === 'Q');
+  const hasKingOfHearts = trick.some(t => t.card.suit === 'hearts' && t.card.rank === 'K');
   
+  // King game - check contract type for appropriate sound
+  if (context?.gameType === 'king' && context.contract) {
+    const contractName = context.contract.name || context.contract.type;
+    
+    // Trump contracts - always play clean sound (positive to win tricks)
+    if (context.contract.type === 'trump') {
+      playAssetSound('trickWinClean', 0.5).then(played => {
+        if (!played) playCleanTrickSoundFallback();
+      });
+      return;
+    }
+    
+    // Penalty contracts - check if trick contains penalty cards
+    let hasPenalty = false;
+    switch (contractName) {
+      case 'el':
+        // All tricks are penalty in 'el' contract
+        hasPenalty = true;
+        break;
+      case 'kupa':
+        hasPenalty = hasHearts;
+        break;
+      case 'erkek':
+        hasPenalty = hasKings || hasJacks;
+        break;
+      case 'kiz':
+        hasPenalty = hasQueens;
+        break;
+      case 'rifki':
+        // King of Hearts in rifki gets the dramatic queen sound
+        if (hasKingOfHearts) {
+          playAssetSound('trickWinQueen', 0.5).then(played => {
+            if (!played) playQueenOfSpadesTrickSoundFallback();
+          });
+          return;
+        }
+        hasPenalty = false; // Other tricks are clean
+        break;
+      case 'sonIki':
+        // Son İki - penalty only matters for tricks 12 and 13
+        // For now, treat all tricks as clean unless it's a late trick
+        hasPenalty = false;
+        break;
+    }
+    
+    if (hasPenalty) {
+      // For penalty contracts in King, play the points sound
+      playAssetSound('trickWinPoints', 0.5).then(played => {
+        if (!played) playHeartsTrickSoundFallback();
+      });
+    } else {
+      playAssetSound('trickWinClean', 0.5).then(played => {
+        if (!played) playCleanTrickSoundFallback();
+      });
+    }
+    return;
+  }
+  
+  // Hearts game (default behavior)
   if (hasQueenOfSpades) {
     playAssetSound('trickWinQueen', 0.5).then(played => {
       if (!played) playQueenOfSpadesTrickSoundFallback();
@@ -466,22 +534,73 @@ function playDefeatSound() {
   });
 }
 
+// Programmatic fallback for moon shot sound (dramatic fanfare)
+function playMoonShotSoundFallback() {
+  const audioContext = getAudioContext();
+  if (!audioContext) return;
+  
+  try {
+    const now = audioContext.currentTime;
+    // Triumphant ascending arpeggio with a flourish
+    const notes = [
+      { freq: 262, time: 0, duration: 0.15 },     // C4
+      { freq: 330, time: 0.1, duration: 0.15 },   // E4
+      { freq: 392, time: 0.2, duration: 0.15 },   // G4
+      { freq: 523, time: 0.3, duration: 0.3 },    // C5
+      { freq: 659, time: 0.5, duration: 0.4 },    // E5
+      { freq: 784, time: 0.7, duration: 0.6 },    // G5 (held)
+    ];
+    
+    notes.forEach(({ freq, time, duration }) => {
+      const osc = audioContext.createOscillator();
+      const gain = audioContext.createGain();
+      
+      osc.connect(gain);
+      gain.connect(audioContext.destination);
+      
+      osc.frequency.value = freq;
+      osc.type = 'triangle';
+      
+      const startTime = now + time;
+      gain.gain.setValueAtTime(0.0001, startTime);
+      gain.gain.linearRampToValueAtTime(0.2, startTime + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.01, startTime + duration);
+      
+      osc.start(startTime);
+      osc.stop(startTime + duration);
+    });
+  } catch (e) {
+    console.warn('Could not play moon shot sound:', e);
+  }
+}
+
+// Play moon shot sound - tries asset first, falls back to programmatic
+export function playMoonShotSound() {
+  playAssetSound('moonShot', 0.6).then(played => {
+    if (!played) playMoonShotSoundFallback();
+  });
+}
+
 // Track if this is the first game start (for playing game start fanfare)
 let isFirstRound = true;
 
 interface SocketContextType {
   socket: Socket | null;
   isConnected: boolean;
-  createTable: (playerName: string) => void;
+  createTable: (playerName: string, gameType?: GameType, options?: { endingScore?: number }) => void;
   joinTable: (tableId: string, playerName: string) => void;
   leaveTable: () => void;
-  listTables: () => void;
+  listTables: (includeInProgress?: boolean) => void;
+  spectateTable: (tableId: string, playerName?: string) => void;
+  leaveSpectate: () => void;
   submitPass: (cards: Card[]) => void;
   playCard: (card: Card) => void;
   nextRound: () => void;
   rematch: (vote: boolean) => void;
   sendChatMessage: (text: string) => void;
   setTyping: (isTyping: boolean) => void;
+  // King-specific
+  selectContract: (contractType: string, trumpSuit?: string) => void;
 }
 
 const SocketContext = createContext<SocketContextType | null>(null);
@@ -520,8 +639,18 @@ export function SocketProvider({ children }: { children: ReactNode }) {
     });
 
     // Table events
-    newSocket.on('tableJoined', (data: { tableId: string; seat: number; players: Player[] }) => {
+    newSocket.on('tableJoined', (data: { tableId: string; seat: number; players: Player[]; gameType?: GameType }) => {
       dispatch({ type: 'JOIN_TABLE', payload: data });
+    });
+
+    newSocket.on('spectateJoined', (data: { tableId: string; players: Player[]; gameType: GameType; gameState: import('../types/game').SpectatorGameState }) => {
+      dispatch({ type: 'SPECTATE_JOIN', payload: data });
+    });
+
+    newSocket.on('spectatorUpdate', (data: { gameState?: import('../types/game').SpectatorGameState; spectatorCount?: number }) => {
+      if (stateRef.current.isSpectating && data.gameState) {
+        dispatch({ type: 'SPECTATE_UPDATE', payload: data });
+      }
     });
 
     newSocket.on('updatePlayers', (data: { players: Player[] }) => {
@@ -570,12 +699,24 @@ export function SocketProvider({ children }: { children: ReactNode }) {
       // Play trick win sound only for the winner
       const currentState = stateRef.current;
       if (data.winner === currentState.mySeat) {
-        playTrickWinSound(data.lastTrick);
+        const context: TrickSoundContext = {
+          gameType: currentState.gameType as 'hearts' | 'king',
+          contract: currentState.kingState?.selectedContract || null,
+        };
+        playTrickWinSound(data.lastTrick, context);
       }
     });
 
     newSocket.on('roundEnd', (data: { roundScores: number[]; cumulativeScores: number[]; moonShooter: number | null; gameOver: boolean; gameWinner: number | null; pointCardsTaken: Card[][] }) => {
       dispatch({ type: 'ROUND_END', payload: data });
+      
+      // Play moon shot sound if someone shot the moon
+      if (data.moonShooter !== null) {
+        // Delay slightly to sync with the animation
+        setTimeout(() => {
+          playMoonShotSound();
+        }, 1500);
+      }
     });
 
     newSocket.on('gameEnd', (data: { winner: number; finalScores: number[] }) => {
@@ -623,6 +764,102 @@ export function SocketProvider({ children }: { children: ReactNode }) {
       dispatch({ type: 'REMATCH_STATUS', payload: data.votes });
     });
 
+    // King-specific events
+    newSocket.on('contractSelectionStart', (data: { 
+      selector: number; 
+      availableContracts: KingContract[]; 
+      gameNumber: number; 
+      partyNumber: number;
+      hand: Card[];
+    }) => {
+      // First update hand, then start contract selection
+      dispatch({ type: 'UPDATE_GAME', payload: { hand: data.hand } });
+      dispatch({ 
+        type: 'CONTRACT_SELECTION_START', 
+        payload: {
+          selector: data.selector,
+          availableContracts: data.availableContracts,
+          gameNumber: data.gameNumber,
+          partyNumber: data.partyNumber,
+        }
+      });
+      // Play game start fanfare only for the very first contract (game 1)
+      if (data.gameNumber === 1 && isFirstRound) {
+        playGameStartSound();
+        isFirstRound = false;
+        setTimeout(() => playCardDealingSound(), 500);
+      } else {
+        playCardDealingSound();
+      }
+    });
+
+    newSocket.on('contractSelected', (data: { contract: KingContract }) => {
+      dispatch({ type: 'CONTRACT_SELECTED', payload: data });
+    });
+
+    newSocket.on('kingGameStart', (data: { 
+      currentPlayer: number; 
+      legalCards: Card[];
+      contract: KingContract;
+    }) => {
+      dispatch({ 
+        type: 'UPDATE_GAME', 
+        payload: { 
+          phase: 'playing', 
+          currentPlayer: data.currentPlayer,
+          legalCards: data.legalCards,
+        } 
+      });
+      dispatch({ type: 'CONTRACT_SELECTED', payload: { contract: data.contract } });
+    });
+
+    newSocket.on('kingRoundEnd', (data: { 
+      roundScores: number[]; 
+      cumulativeScores: number[]; 
+      gameOver: boolean;
+      partyScores?: number[];
+      pointCardsTaken: Card[][];
+    }) => {
+      dispatch({ type: 'ROUND_END', payload: { ...data, moonShooter: null, gameWinner: null } });
+      if (data.partyScores) {
+        dispatch({ type: 'UPDATE_KING_STATE', payload: { partyScores: data.partyScores } });
+      }
+    });
+
+    newSocket.on('kingGameEnd', (data: {
+      gameScores: number[];
+      cumulativeScores: number[];
+      partyOver: boolean;
+      winners?: number[];
+      penaltyCardsTaken: Card[][];
+      contract: { type: string; name?: string; trumpSuit?: string };
+      gameNumber: number;
+    }) => {
+      dispatch({ 
+        type: 'ROUND_END', 
+        payload: { 
+          roundScores: data.gameScores,
+          cumulativeScores: data.cumulativeScores,
+          pointCardsTaken: data.penaltyCardsTaken,
+          gameOver: data.partyOver,
+          moonShooter: null,
+          gameWinner: data.winners?.[0] ?? null,
+        } 
+      });
+      dispatch({ 
+        type: 'UPDATE_KING_STATE', 
+        payload: { 
+          gameNumber: data.gameNumber,
+          selectedContract: {
+            type: data.contract.type as KingContract['type'],
+            trumpSuit: data.contract.trumpSuit as KingContract['trumpSuit'],
+            name: data.contract.name,
+            label: data.contract.name || data.contract.type,
+          },
+        } 
+      });
+    });
+
     setSocket(newSocket);
 
     return () => {
@@ -630,8 +867,8 @@ export function SocketProvider({ children }: { children: ReactNode }) {
     };
   }, [dispatch]);
 
-  const createTable = (playerName: string) => {
-    socket?.emit('createTable', { playerName });
+  const createTable = (playerName: string, gameType: GameType = 'hearts', options: { endingScore?: number } = {}) => {
+    socket?.emit('createTable', { playerName, gameType, options });
   };
 
   const joinTable = (tableId: string, playerName: string) => {
@@ -645,8 +882,17 @@ export function SocketProvider({ children }: { children: ReactNode }) {
     isFirstRound = true;
   };
 
-  const listTables = () => {
-    socket?.emit('listTables');
+  const listTables = (includeInProgress = false) => {
+    socket?.emit('listTables', { includeInProgress });
+  };
+
+  const spectateTable = (tableId: string, playerName?: string) => {
+    socket?.emit('spectateTable', { tableId, playerName });
+  };
+
+  const leaveSpectate = () => {
+    socket?.emit('leaveSpectate');
+    dispatch({ type: 'LEAVE_SPECTATE' });
   };
 
   const submitPass = (cards: Card[]) => {
@@ -673,6 +919,16 @@ export function SocketProvider({ children }: { children: ReactNode }) {
     socket?.emit('typing', { isTyping });
   };
 
+  // King-specific
+  const selectContract = (contractType: string, trumpSuit?: string) => {
+    // If it's 'trump', send as trump type; otherwise it's a penalty contract name
+    if (contractType === 'trump') {
+      socket?.emit('selectContract', { contractType: 'trump', trumpSuit });
+    } else {
+      socket?.emit('selectContract', { contractType: 'penalty', contractName: contractType });
+    }
+  };
+
   return (
     <SocketContext.Provider value={{
       socket,
@@ -681,12 +937,15 @@ export function SocketProvider({ children }: { children: ReactNode }) {
       joinTable,
       leaveTable,
       listTables,
+      spectateTable,
+      leaveSpectate,
       submitPass,
       playCard,
       nextRound,
       rematch,
       sendChatMessage,
       setTyping,
+      selectContract,
     }}>
       {children}
     </SocketContext.Provider>

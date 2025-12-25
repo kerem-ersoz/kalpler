@@ -1,10 +1,24 @@
 import { createContext, useContext, useReducer, type Dispatch, type ReactNode } from 'react';
-import type { GameState, GameAction, Card } from '../types/game';
+import type { GameState, GameAction, Card, KingGameState } from '../types/game';
+
+const initialKingState: KingGameState = {
+  currentContractSelector: null,
+  availableContracts: [],
+  selectedContract: null,
+  gameNumber: 0,
+  partyNumber: 1,
+  contractHistory: [],
+  partyScores: [0, 0, 0, 0],
+};
 
 const initialState: GameState = {
   connectionStatus: 'connecting',
   tableId: null,
   mySeat: null,
+  isSpectating: false,
+  spectatorState: null,
+  gameType: 'hearts',
+  endingScore: null,
   players: [],
   phase: 'waiting',
   roundNumber: 1,
@@ -17,6 +31,7 @@ const initialState: GameState = {
   passDirection: null,
   passSubmitted: false,
   selectedPassCards: [],
+  kingState: null,
   roundScores: [0, 0, 0, 0],
   cumulativeScores: [0, 0, 0, 0],
   pointCardsTaken: [[], [], [], []],
@@ -53,6 +68,9 @@ function gameReducer(state: GameState, action: GameAction): GameState {
         tableId: action.payload.tableId,
         mySeat: action.payload.seat,
         players: action.payload.players,
+        gameType: action.payload.gameType || 'hearts',
+        endingScore: action.payload.endingScore ?? null,
+        kingState: action.payload.gameType === 'king' ? { ...initialKingState } : null,
         phase: 'waiting',
       };
     
@@ -86,12 +104,25 @@ function gameReducer(state: GameState, action: GameAction): GameState {
     case 'UPDATE_GAME': {
       // Don't let updateGame override currentTrick/lastTrick during animation
       const payload = action.payload;
+      
+      // Update kingState if gameNumber or contract is in payload
+      let updatedKingState = state.kingState;
+      if (payload.gameNumber !== undefined || payload.contract !== undefined) {
+        const currentKingState = state.kingState || initialKingState;
+        updatedKingState = {
+          ...currentKingState,
+          ...(payload.gameNumber !== undefined ? { gameNumber: payload.gameNumber } : {}),
+          ...(payload.contract !== undefined ? { selectedContract: payload.contract } : {}),
+        };
+      }
+      
       if (state.trickAnimation) {
         // eslint-disable-next-line @typescript-eslint/no-unused-vars
         const { currentTrick: _ct, lastTrick: _lt, ...safePayload } = payload;
         return {
           ...state,
           ...safePayload,
+          kingState: updatedKingState,
           isMyTurn: payload.phase === 'playing' && 
             payload.currentPlayer === state.mySeat,
         };
@@ -99,6 +130,7 @@ function gameReducer(state: GameState, action: GameAction): GameState {
       return {
         ...state,
         ...payload,
+        kingState: updatedKingState,
         isMyTurn: payload.phase === 'playing' && 
           payload.currentPlayer === state.mySeat,
       };
@@ -223,6 +255,7 @@ function gameReducer(state: GameState, action: GameAction): GameState {
         currentTrick: [],
         lastPlayedCard: null,
         moonShooter: action.payload.moonShooter,
+        hand: [], // Clear player's hand when round/game ends
       };
     
     case 'GAME_END':
@@ -259,6 +292,69 @@ function gameReducer(state: GameState, action: GameAction): GameState {
       return { ...state, rematchVotes: action.payload };
     
     case 'RESET':
+      return { ...initialState, connectionStatus: state.connectionStatus };
+    
+    // King-specific actions
+    case 'CONTRACT_SELECTION_START':
+      return {
+        ...state,
+        phase: 'contractSelection',
+        kingState: {
+          ...(state.kingState || initialKingState),
+          currentContractSelector: action.payload.selector,
+          availableContracts: action.payload.availableContracts,
+          selectedContract: null,
+          gameNumber: action.payload.gameNumber,
+          partyNumber: action.payload.partyNumber,
+        },
+        isMyTurn: action.payload.selector === state.mySeat,
+      };
+    
+    case 'CONTRACT_SELECTED': {
+      const currentKingState = state.kingState || initialKingState;
+      return {
+        ...state,
+        kingState: {
+          ...currentKingState,
+          selectedContract: action.payload.contract,
+          contractHistory: [
+            ...currentKingState.contractHistory,
+            { selector: currentKingState.currentContractSelector!, contract: action.payload.contract }
+          ],
+        },
+      };
+    }
+    
+    case 'UPDATE_KING_STATE':
+      return {
+        ...state,
+        kingState: state.kingState ? {
+          ...state.kingState,
+          ...action.payload,
+        } : null,
+      };
+    
+    // Spectating actions
+    case 'SPECTATE_JOIN':
+      return {
+        ...state,
+        tableId: action.payload.tableId,
+        players: action.payload.players,
+        gameType: action.payload.gameType,
+        isSpectating: true,
+        spectatorState: action.payload.gameState,
+        phase: action.payload.gameState.phase,
+        mySeat: null, // Spectators don't have a seat
+      };
+    
+    case 'SPECTATE_UPDATE':
+      return {
+        ...state,
+        spectatorState: action.payload.gameState || state.spectatorState,
+        phase: action.payload.gameState?.phase || state.phase,
+      };
+    
+    case 'LEAVE_SPECTATE':
       return { ...initialState, connectionStatus: state.connectionStatus };
     
     default:
