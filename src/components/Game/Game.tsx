@@ -96,6 +96,8 @@ export function Game() {
   const [floatingScores, setFloatingScores] = useState<Record<number, number | null>>({});
   // Displayed scores (delayed update during animation)
   const [displayedScores, setDisplayedScores] = useState<number[]>([0, 0, 0, 0]);
+  // Moon shot animation state (managed locally to prevent premature clearing)
+  const [localMoonShooter, setLocalMoonShooter] = useState<number | null>(null);
   // Spades: selected bid value
   const [selectedBid, setSelectedBid] = useState<number>(1);
 
@@ -114,85 +116,46 @@ export function Game() {
     return result;
   }, [state.mySeat]);
 
-  // Timer progress
+  // All timer progress updates combined into one effect for better mobile performance
+  // Update only every 500ms instead of 100ms (2x per second is plenty for a progress bar)
+  // This reduces re-renders significantly, preventing phone overheating
   useEffect(() => {
-    if (!state.turnTimeoutAt) {
-      setTimerProgress(100);
-      return;
-    }
-
-    const updateTimer = () => {
+    const updateAllTimers = () => {
       const now = Date.now();
-      const remaining = Math.max(0, state.turnTimeoutAt! - now);
-      const total = 30000;
-      setTimerProgress((remaining / total) * 100);
+      
+      if (state.turnTimeoutAt) {
+        const remaining = Math.max(0, state.turnTimeoutAt - now);
+        setTimerProgress((remaining / 30000) * 100);
+      } else {
+        setTimerProgress(100);
+      }
+      
+      if (state.passTimeoutAt) {
+        const remaining = Math.max(0, state.passTimeoutAt - now);
+        setPassTimerProgress((remaining / 30000) * 100);
+      } else {
+        setPassTimerProgress(100);
+      }
+      
+      if (state.contractTimeoutAt) {
+        const remaining = Math.max(0, state.contractTimeoutAt - now);
+        setContractTimerProgress((remaining / 45000) * 100);
+      } else {
+        setContractTimerProgress(100);
+      }
+      
+      if (state.biddingTimeoutAt) {
+        const remaining = Math.max(0, state.biddingTimeoutAt - now);
+        setBiddingTimerProgress((remaining / 30000) * 100);
+      } else {
+        setBiddingTimerProgress(100);
+      }
     };
 
-    updateTimer();
-    const interval = setInterval(updateTimer, 100);
-
+    updateAllTimers();
+    const interval = setInterval(updateAllTimers, 500);
     return () => clearInterval(interval);
-  }, [state.turnTimeoutAt]);
-
-  // Pass timer progress
-  useEffect(() => {
-    if (!state.passTimeoutAt) {
-      setPassTimerProgress(100);
-      return;
-    }
-
-    const updateTimer = () => {
-      const now = Date.now();
-      const remaining = Math.max(0, state.passTimeoutAt! - now);
-      const total = 30000;
-      setPassTimerProgress((remaining / total) * 100);
-    };
-
-    updateTimer();
-    const interval = setInterval(updateTimer, 100);
-
-    return () => clearInterval(interval);
-  }, [state.passTimeoutAt]);
-
-  // Contract selection timer progress
-  useEffect(() => {
-    if (!state.contractTimeoutAt) {
-      setContractTimerProgress(100);
-      return;
-    }
-
-    const updateTimer = () => {
-      const now = Date.now();
-      const remaining = Math.max(0, state.contractTimeoutAt! - now);
-      const total = 45000; // 45 seconds for contract selection
-      setContractTimerProgress((remaining / total) * 100);
-    };
-
-    updateTimer();
-    const interval = setInterval(updateTimer, 100);
-
-    return () => clearInterval(interval);
-  }, [state.contractTimeoutAt]);
-
-  // Bidding timer progress
-  useEffect(() => {
-    if (!state.biddingTimeoutAt) {
-      setBiddingTimerProgress(100);
-      return;
-    }
-
-    const updateTimer = () => {
-      const now = Date.now();
-      const remaining = Math.max(0, state.biddingTimeoutAt! - now);
-      const total = 30000;
-      setBiddingTimerProgress((remaining / total) * 100);
-    };
-
-    updateTimer();
-    const interval = setInterval(updateTimer, 100);
-
-    return () => clearInterval(interval);
-  }, [state.biddingTimeoutAt]);
+  }, [state.turnTimeoutAt, state.passTimeoutAt, state.contractTimeoutAt, state.biddingTimeoutAt]);
 
   // Dealing animation - when cards are dealt at the start of a round
   useEffect(() => {
@@ -503,6 +466,50 @@ export function Game() {
     const player = state.players.find(p => p.seat === seat);
     return player?.name || 'Bekleniyor...';
   };
+
+  // Manage moon shot animation locally to prevent premature clearing
+  useEffect(() => {
+    if (state.moonShooter !== null && state.moonShooter !== localMoonShooter) {
+      setLocalMoonShooter(state.moonShooter);
+      // Clear after animation completes (3000ms)
+      const timer = setTimeout(() => {
+        setLocalMoonShooter(null);
+      }, 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [state.moonShooter, localMoonShooter]);
+
+  // DEV ONLY: Trigger moon shot animation for testing (Press 'M' key)
+  useEffect(() => {
+    if (import.meta.env.DEV) {
+      const handleKeyPress = (e: KeyboardEvent) => {
+        if (e.key === 'm' || e.key === 'M') {
+          // Trigger moon shot for a random player
+          const randomSeat = Math.floor(Math.random() * 4);
+          dispatch({ 
+            type: 'ROUND_END', 
+            payload: { 
+              roundScores: [0, 0, 0, 0],
+              cumulativeScores: state.cumulativeScores,
+              pointCardsTaken: [[], [], [], []],
+              moonShooter: randomSeat,
+              gameOver: false,
+              gameWinner: null
+            } 
+          });
+          // Clear it after animation completes
+          setTimeout(() => {
+            dispatch({ 
+              type: 'UPDATE_GAME', 
+              payload: { moonShooter: null } 
+            });
+          }, 3000);
+        }
+      };
+      window.addEventListener('keydown', handleKeyPress);
+      return () => window.removeEventListener('keydown', handleKeyPress);
+    }
+  }, [dispatch, state.cumulativeScores]);
 
   // Available avatar images (0-11.png)
   const AVATAR_COUNT = 12;
@@ -1064,9 +1071,9 @@ export function Game() {
                           );
                         })()}
                         {/* Moon shot animation */}
-                        {state.moonShooter === seat && (
+                        {localMoonShooter === seat && (
                           <div className={styles.moonShotText}>
-                            Ayı Vurdu!
+                            Kafa Attı!
                           </div>
                         )}
                         {/* Floating score animation */}
@@ -1227,7 +1234,7 @@ export function Game() {
                 Tamam ({state.selectedPassCards.length}/3)
               </button>
             )}
-            {/* Rematch UI - positioned over hand during gameEnd phase */}
+            {/* Rematch UI - positioned in table area aligned with South player during gameEnd phase */}
             {state.phase === 'gameEnd' && (
               <div className={styles.rematchOverHand}>
                 <div className={styles.rematchButtons}>
@@ -1236,7 +1243,7 @@ export function Game() {
                   </button>
                 </div>
                 <span className={styles.rematchVotesSmall}>
-                  {Object.values(state.rematchVotes).filter(v => v).length}/4 oyuncu hazır
+                  {Object.values(state.rematchVotes).filter(v => v).length}/4
                 </span>
               </div>
             )}

@@ -81,8 +81,8 @@
 /* Table actions - southeast corner of table */
 .tableCornerActions {
   position: absolute;
-  bottom: 98px;
-  right: 65px;
+  bottom: 108px;
+  right: 85px;
   display: flex;
   flex-direction: column;
   align-items: flex-end;
@@ -302,6 +302,7 @@
   width: 90px;
   max-width: 90px;
   box-sizing: border-box;
+  position: relative;
 }
 
 .playerName {
@@ -460,13 +461,13 @@
   top: 0;
   left: 50%;
   transform: translateX(-50%);
-  color: #ffd700;
+  color: #d3d3d3;
   font-size: 0.8rem;
   font-weight: 700;
   white-space: nowrap;
   -webkit-text-stroke: 2px black;
   paint-order: stroke fill;
-  animation: moonShotRise 1000ms ease-out forwards;
+  animation: moonShotRise 3000ms ease-out forwards;
   pointer-events: none;
 }
 
@@ -787,12 +788,11 @@
   z-index: 20;
 }
 
-/* Rematch UI - positioned below hand during game end */
+/* Rematch UI - positioned in table area aligned with East player horizontally and South player vertically */
 .rematchOverHand {
   position: absolute;
-  bottom: 45px;
-  left: calc(50% - 100px);
-  transform: translateX(-50%);
+  bottom: 120px;
+  right: 80px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -835,8 +835,11 @@
 }
 
 .rematchVotesSmall {
-  color: #8892b0;
+  color: #d3d3d3;
   font-size: 0.5rem;
+  font-weight: 600;
+  -webkit-text-stroke: 2px black;
+  paint-order: stroke fill;
 }
 
 .hand {

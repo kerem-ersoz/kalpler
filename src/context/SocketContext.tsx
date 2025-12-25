@@ -605,6 +605,9 @@ interface SocketContextType {
   submitBid: (bid: number | 'nil' | 'blind_nil') => void;
 }
 
+// Track if the most recent round end had a moon shot (for sound management)
+let lastRoundHadMoonShot = false;
+
 const SocketContext = createContext<SocketContextType | null>(null);
 
 export function SocketProvider({ children }: { children: ReactNode }) {
@@ -737,6 +740,9 @@ export function SocketProvider({ children }: { children: ReactNode }) {
     newSocket.on('roundEnd', (data: { roundScores: number[]; cumulativeScores: number[]; moonShooter: number | null; gameOver: boolean; gameWinner: number | null; pointCardsTaken: Card[][] }) => {
       dispatch({ type: 'ROUND_END', payload: data });
       
+      // Track if this round had a moon shot
+      lastRoundHadMoonShot = data.moonShooter !== null;
+      
       // Play moon shot sound if someone shot the moon
       if (data.moonShooter !== null) {
         // Delay slightly to sync with the animation
@@ -752,9 +758,10 @@ export function SocketProvider({ children }: { children: ReactNode }) {
       isFirstRound = true;
       
       // Play victory or defeat sound based on whether this player tied for lowest score
+      // BUT: Don't play if the last round had a moon shot (sound already played)
       const currentState = stateRef.current;
       const lowestScore = Math.min(...data.finalScores);
-      if (currentState.mySeat !== null) {
+      if (currentState.mySeat !== null && !lastRoundHadMoonShot) {
         const myScore = data.finalScores[currentState.mySeat];
         if (myScore === lowestScore) {
           playVictorySound();
@@ -762,6 +769,8 @@ export function SocketProvider({ children }: { children: ReactNode }) {
           playDefeatSound();
         }
       }
+      // Reset the flag for next game
+      lastRoundHadMoonShot = false;
     });
 
     newSocket.on('turnStart', (data: { player: number; timeoutAt: number }) => {

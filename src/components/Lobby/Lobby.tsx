@@ -6,7 +6,7 @@ import { APP_VERSION } from '../../constants/version';
 import styles from './Lobby.module.css';
 
 const GAME_TYPE_LABELS: Record<GameType, string> = {
-  hearts: 'Kupa Almaz',
+  hearts: 'Maça Kızı',
   king: 'King',
   spades: 'Eşli Batak',
 };
@@ -113,7 +113,7 @@ export function Lobby() {
               className={`${styles.gameTypeButton} ${selectedGameType === 'hearts' ? styles.active : ''}`}
               onClick={() => { setSelectedGameType('hearts'); setEndingScore(50); }}
             >
-              Kupa Almaz
+              Maça Kızı
             </button>
             <button
               className={`${styles.gameTypeButton} ${selectedGameType === 'king' ? styles.active : ''}`}
@@ -155,7 +155,7 @@ export function Lobby() {
                   <div className={styles.tableInfo}>
                     <div className={styles.tableHeader}>
                       <span className={styles.tableId}>{table.id}</span>
-                      <span className={styles.gameType}>{GAME_TYPE_LABELS[table.gameType] || 'Kupa Almaz'}</span>
+                      <span className={styles.gameType}>{GAME_TYPE_LABELS[table.gameType] || 'Maça Kızı'}</span>
                       {table.inGame && (
                         <span className={styles.inGameBadge}>OYUNDA</span>
                       )}
