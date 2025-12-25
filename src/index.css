@@ -1,28 +1,28 @@
 /* Custom Fonts */
 @font-face {
   font-family: 'Primary';
-  src: url('/kalpler/assets/fonts/primary.ttf') format('truetype');
+  src: url('/gonul/assets/fonts/primary.ttf') format('truetype');
   font-weight: normal;
   font-style: normal;
 }
 
 @font-face {
   font-family: 'Display';
-  src: url('/kalpler/assets/fonts/display.ttf') format('truetype');
+  src: url('/gonul/assets/fonts/display.ttf') format('truetype');
   font-weight: normal;
   font-style: normal;
 }
 
 @font-face {
   font-family: 'Mono';
-  src: url('/kalpler/assets/fonts/mono.ttf') format('truetype');
+  src: url('/gonul/assets/fonts/mono.ttf') format('truetype');
   font-weight: normal;
   font-style: normal;
 }
 
 @font-face {
   font-family: 'Suits';
-  src: url('/kalpler/assets/fonts/suits.ttf') format('truetype');
+  src: url('/gonul/assets/fonts/suits.ttf') format('truetype');
   font-weight: normal;
   font-style: normal;
 }
