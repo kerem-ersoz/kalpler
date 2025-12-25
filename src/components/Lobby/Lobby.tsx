@@ -2,11 +2,13 @@ import { useState, useEffect, useCallback } from 'react';
 import { useSocket } from '../../context/SocketContext';
 import { generateDefaultName } from '../../utils/defaultNames';
 import type { TableInfo, GameType } from '../../types/game';
+import { APP_VERSION } from '../../constants/version';
 import styles from './Lobby.module.css';
 
 const GAME_TYPE_LABELS: Record<GameType, string> = {
   hearts: 'Kupa Almaz',
   king: 'King',
+  spades: 'Eşli Batak',
 };
 
 export function Lobby() {
@@ -45,7 +47,7 @@ export function Lobby() {
 
   const handleCreateTable = () => {
     if (playerName.trim()) {
-      if (selectedGameType === 'hearts') {
+      if (selectedGameType === 'hearts' || selectedGameType === 'spades') {
         setShowScoreModal(true);
       } else {
         createTable(playerName.trim(), selectedGameType);
@@ -109,7 +111,7 @@ export function Lobby() {
           <div className={styles.gameTypeButtons}>
             <button
               className={`${styles.gameTypeButton} ${selectedGameType === 'hearts' ? styles.active : ''}`}
-              onClick={() => setSelectedGameType('hearts')}
+              onClick={() => { setSelectedGameType('hearts'); setEndingScore(50); }}
             >
               Kupa Almaz
             </button>
@@ -118,6 +120,12 @@ export function Lobby() {
               onClick={() => setSelectedGameType('king')}
             >
               King
+            </button>
+            <button
+              className={`${styles.gameTypeButton} ${selectedGameType === 'spades' ? styles.active : ''}`}
+              onClick={() => { setSelectedGameType('spades'); setEndingScore(300); }}
+            >
+              Eşli Batak
             </button>
           </div>
         </div>
@@ -207,7 +215,7 @@ export function Lobby() {
         </div>
       </div>
 
-      {/* Score selection modal for Hearts */}
+      {/* Score selection modal for Hearts/Spades */}
       {showScoreModal && (
         <div className={styles.modalOverlay}>
           <div className={styles.modal}>
@@ -215,9 +223,9 @@ export function Lobby() {
             <div className={styles.sliderContainer}>
               <input
                 type="range"
-                min="10"
-                max="100"
-                step="5"
+                min={selectedGameType === 'spades' ? 100 : 10}
+                max={selectedGameType === 'spades' ? 1000 : 100}
+                step={selectedGameType === 'spades' ? 50 : 5}
                 value={endingScore}
                 onChange={(e) => setEndingScore(Number(e.target.value))}
                 className={styles.slider}
@@ -241,7 +249,7 @@ export function Lobby() {
           </div>
         </div>
       )}
-      <span className={styles.versionInfo}>v1.3.1</span>
+      <span className={styles.versionInfo}>{APP_VERSION}</span>
     </div>
   );
 }

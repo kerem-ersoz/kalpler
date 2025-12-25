@@ -185,6 +185,9 @@ class Table {
     if (this.gameType === GAME_TYPES.KING) {
       const initialSelector = this.options.initialSelectorSeat ?? 0;
       this.game = new KingGame(initialSelector);
+    } else if (this.gameType === GAME_TYPES.SPADES) {
+      const winThreshold = this.options.winThreshold || 300;
+      this.game = new SpadesGame(winThreshold);
     } else {
       this.game = new HeartsGame(this.endingScore);
     }
@@ -358,6 +361,16 @@ io.on('connection', (socket) => {
             });
           }
           startSelectTimer(table);
+        } else if (table.gameType === GAME_TYPES.SPADES) {
+          // Spades: start with bidding phase
+          for (const player of table.players) {
+            io.to(player.id).emit('biddingStart', {
+              hand: table.game.hands[player.seat],
+              currentBidder: table.game.currentPlayer,
+              roundNumber: table.game.roundNumber,
+            });
+          }
+          startBidTimer(table);
         } else {
           // Hearts: start with passing or playing
           for (const player of table.players) {
@@ -535,6 +548,7 @@ io.on('connection', (socket) => {
       selectorSeat: player.seat,
       contract: result.contract,
       startingPlayer: result.startingPlayer,
+      gameNumber: table.game.gameNumber,
     });
     
     // Update game state for all players
@@ -544,6 +558,62 @@ io.on('connection', (socket) => {
     
     // Start turn timer
     startTurnTimer(table);
+  });
+
+  // -------------------------------------------------------------------------
+  // SPADES-SPECIFIC EVENTS
+  // -------------------------------------------------------------------------
+
+  socket.on('submitBid', ({ bid }) => {
+    if (!currentTableId) return;
+    
+    const table = tables.get(currentTableId);
+    if (!table || !table.game || table.gameType !== GAME_TYPES.SPADES) return;
+    
+    const player = table.getPlayerBySocketId(socket.id);
+    if (!player) return;
+    
+    clearBidTimer(table);
+    
+    const result = table.game.submitBid(player.seat, bid);
+    
+    if (!result.success) {
+      socket.emit('error', { message: result.error });
+      startBidTimer(table);
+      return;
+    }
+    
+    // Broadcast bid submission to all players
+    io.to(currentTableId).emit('bidSubmitted', {
+      seat: player.seat,
+      bid: bid,
+      bids: table.game.bids,
+      nextBidder: result.allBidsIn ? null : table.game.currentPlayer,
+    });
+    
+    if (result.allBidsIn) {
+      // All bids in, start playing
+      io.to(currentTableId).emit('spadesGameStart', {
+        currentPlayer: table.game.currentPlayer,
+        legalCards: table.game.getLegalCards(table.game.currentPlayer),
+        bids: table.game.bids,
+        teamBids: [
+          table.game.getTeamBid(0),
+          table.game.getTeamBid(1),
+        ],
+        cumulativeScores: table.game.cumulativeScores,
+      });
+      
+      // Update game state for all players
+      for (const p of table.players) {
+        io.to(p.id).emit('updateGame', table.game.getStateForPlayer(p.seat));
+      }
+      
+      startTurnTimer(table);
+    } else {
+      // Start bid timer for next bidder
+      startBidTimer(table);
+    }
   });
 
   // -------------------------------------------------------------------------
@@ -594,6 +664,8 @@ io.on('connection', (socket) => {
           handleKingGameEnd(table, result);
         } else if (table.gameType === GAME_TYPES.HEARTS && result.roundComplete) {
           handleHeartsRoundEnd(table, result);
+        } else if (table.gameType === GAME_TYPES.SPADES && result.roundComplete) {
+          handleSpadesRoundEnd(table, result);
         } else {
           // Continue playing
           setTimeout(() => {
@@ -634,6 +706,17 @@ io.on('connection', (socket) => {
         });
       }
       startSelectTimer(table);
+    } else if (table.gameType === GAME_TYPES.SPADES) {
+      table.game.startNextRound();
+      
+      for (const p of table.players) {
+        io.to(p.id).emit('biddingStart', {
+          hand: table.game.hands[p.seat],
+          currentBidder: table.game.currentPlayer,
+          roundNumber: table.game.roundNumber,
+        });
+      }
+      startBidTimer(table);
     } else {
       table.game.startNextRound();
       
@@ -675,6 +758,8 @@ io.on('connection', (socket) => {
       // Reset game
       if (table.gameType === GAME_TYPES.KING) {
         table.game = new KingGame();
+      } else if (table.gameType === GAME_TYPES.SPADES) {
+        table.game = new SpadesGame(table.options.winThreshold || 300);
       } else {
         table.game = new HeartsGame(table.endingScore);
       }
@@ -695,6 +780,15 @@ io.on('connection', (socket) => {
           });
         }
         startSelectTimer(table);
+      } else if (table.gameType === GAME_TYPES.SPADES) {
+        for (const p of table.players) {
+          io.to(p.id).emit('biddingStart', {
+            hand: table.game.hands[p.seat],
+            currentBidder: table.game.currentPlayer,
+            roundNumber: table.game.roundNumber,
+          });
+        }
+        startBidTimer(table);
       } else {
         for (const p of table.players) {
           io.to(p.id).emit('startGame', {
@@ -854,6 +948,15 @@ function buildSpectatorState(table) {
     state.contractHistory = game.contractHistory;
     state.cumulativeScores = game.cumulativeScores;
     state.pointCardsTaken = game.getPenaltyCardsTaken ? game.getPenaltyCardsTaken() : null;
+  } else if (table.gameType === GAME_TYPES.SPADES) {
+    state.bids = game.bids;
+    state.spadesBroken = game.spadesBroken;
+    state.roundNumber = game.roundNumber;
+    state.teamTricks = game.teamTricks;
+    state.tricksTakenBySeat = game.tricksTakenBySeat;
+    state.cumulativeScores = game.cumulativeScores;
+    state.roundScores = game.roundScores;
+    state.bags = game.bags;
   }
   
   return state;
@@ -962,6 +1065,45 @@ function handleKingGameEnd(table, result) {
       }
       startSelectTimer(table);
     }, 5000);
+  }
+}
+
+function handleSpadesRoundEnd(table, result) {
+  io.to(table.id).emit('spadesRoundEnd', {
+    roundScores: result.roundScores,
+    teamScores: result.cumulativeScores,
+    bags: result.bags,
+    teamTricks: result.teamTricks,
+    bids: result.bids,
+    tricksTaken: result.tricksTakenBySeat,
+    gameOver: result.gameOver,
+    gameWinnerTeam: result.gameWinnerTeam,
+    roundNumber: table.game.roundNumber,
+  });
+  
+  if (result.gameOver) {
+    table.rematchVotes = {};
+    io.to(table.id).emit('gameEnd', {
+      gameType: GAME_TYPES.SPADES,
+      winnerTeam: result.gameWinnerTeam,
+      finalScores: result.cumulativeScores,
+    });
+  } else {
+    // Auto-advance to next round after delay
+    setTimeout(() => {
+      if (!table.game || table.game.phase !== 'roundEnd') return;
+      
+      table.game.startNextRound();
+      
+      for (const p of table.players) {
+        io.to(p.id).emit('biddingStart', {
+          hand: table.game.hands[p.seat],
+          currentBidder: table.game.currentPlayer,
+          roundNumber: table.game.roundNumber,
+        });
+      }
+      startBidTimer(table);
+    }, 8000);
   }
 }
 
@@ -1135,6 +1277,8 @@ function startTurnTimer(table) {
             handleKingGameEnd(table, result);
           } else if (table.gameType === GAME_TYPES.HEARTS && result.roundComplete) {
             handleHeartsRoundEnd(table, result);
+          } else if (table.gameType === GAME_TYPES.SPADES && result.roundComplete) {
+            handleSpadesRoundEnd(table, result);
           } else {
             setTimeout(() => {
               for (const p of table.players) {
@@ -1264,6 +1408,7 @@ function startSelectTimer(table) {
         selectorSeat,
         contract: result.contract,
         startingPlayer: result.startingPlayer,
+        gameNumber: table.game.gameNumber,
         autoSelected: true,
       });
       
@@ -1284,6 +1429,78 @@ function clearSelectTimer(table) {
   }
 }
 
+// Spades bid timer
+function startBidTimer(table) {
+  clearBidTimer(table);
+  
+  if (!table.game || table.game.phase !== 'bidding') return;
+  
+  const currentBidder = table.game.currentPlayer;
+  const bidStartTime = Date.now();
+  const bidDuration = 30000;
+  
+  io.to(table.id).emit('bidTimerStart', {
+    player: currentBidder,
+    timeoutAt: bidStartTime + bidDuration,
+  });
+  
+  table.bidTimer = setTimeout(() => {
+    if (!table.game || table.game.phase !== 'bidding') return;
+    if (table.game.currentPlayer !== currentBidder) return;
+    if (table.game.bids[currentBidder] !== null) return;
+    
+    // Auto-bid 2 (conservative default)
+    const autoBid = 2;
+    const result = table.game.submitBid(currentBidder, autoBid);
+    
+    const player = table.getPlayerBySeat(currentBidder);
+    if (player) {
+      io.to(player.id).emit('autoBid', { bid: autoBid });
+    }
+    
+    io.to(table.id).emit('bidsUpdate', {
+      bids: table.game.bids,
+      currentBidder: table.game.currentPlayer,
+      teamBids: [
+        table.game.getTeamBid(0),
+        table.game.getTeamBid(1),
+      ],
+    });
+    
+    if (result.allBidsIn) {
+      io.to(table.id).emit('biddingComplete', {
+        bids: table.game.bids,
+        teamBids: [
+          table.game.getTeamBid(0),
+          table.game.getTeamBid(1),
+        ],
+      });
+      
+      for (const p of table.players) {
+        io.to(p.id).emit('updateGame', table.game.getStateForPlayer(p.seat));
+      }
+      
+      startTurnTimer(table);
+    } else {
+      for (const p of table.players) {
+        io.to(p.id).emit('updateGame', {
+          currentPlayer: table.game.currentPlayer,
+          bids: table.game.bids,
+          canDeclareBlindNil: table.game.canDeclareBlindNil(p.seat),
+        });
+      }
+      startBidTimer(table);
+    }
+  }, bidDuration);
+}
+
+function clearBidTimer(table) {
+  if (table.bidTimer) {
+    clearTimeout(table.bidTimer);
+    table.bidTimer = null;
+  }
+}
+
 // ============================================================================
 // START SERVER
 // ============================================================================
@@ -1296,6 +1513,7 @@ setInterval(() => {
       clearTurnTimer(table);
       clearPassTimer(table);
       clearSelectTimer(table);
+      clearBidTimer(table);
       tables.delete(tableId);
       console.log(`Cleaned up empty table: ${tableId}`);
     }

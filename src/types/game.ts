@@ -22,9 +22,9 @@ export interface ChatMessage {
   timestamp: number;
 }
 
-export type GameType = 'hearts' | 'king';
+export type GameType = 'hearts' | 'king' | 'spades';
 
-export type GamePhase = 'waiting' | 'passing' | 'contractSelection' | 'playing' | 'roundEnd' | 'gameEnd';
+export type GamePhase = 'waiting' | 'passing' | 'bidding' | 'contractSelection' | 'playing' | 'roundEnd' | 'gameEnd';
 
 export type PassDirection = 'left' | 'right' | 'across' | 'hold';
 
@@ -62,6 +62,28 @@ export interface KingGameState {
   partyScores: number[];
 }
 
+// Spades-specific types
+export type SpadesBid = number | 'nil' | 'blind_nil' | null;
+
+export interface SpadesGameState {
+  // Bidding
+  bids: SpadesBid[]; // 4 players, null if not yet bid
+  currentBidder: number | null;
+  bidSubmitted: boolean;
+  canDeclareBlindNil: boolean;
+  
+  // Teams (seats 0+2 vs 1+3)
+  teamBids: [number, number]; // Sum of partner bids
+  teamTricks: [number, number]; // Tricks won this round per team
+  tricksTakenBySeat: number[]; // Individual tricks per seat
+  
+  // Scoring
+  bags: [number, number]; // Cumulative bags per team
+  
+  // Trump status
+  spadesBroken: boolean;
+}
+
 export interface GameState {
   // Connection
   connectionStatus: 'connecting' | 'connected' | 'disconnected';
@@ -96,6 +118,9 @@ export interface GameState {
   
   // King-specific state
   kingState: KingGameState | null;
+  
+  // Spades-specific state
+  spadesState: SpadesGameState | null;
   
   // Scores
   roundScores: number[];
@@ -145,6 +170,12 @@ export interface GameState {
   // Pass timer
   passTimeoutAt: number | null;
   
+  // Contract selection timer (King)
+  contractTimeoutAt: number | null;
+  
+  // Bidding timer (Spades)
+  biddingTimeoutAt: number | null;
+  
   // Moon shooter animation
   moonShooter: number | null;
 }
@@ -168,6 +199,8 @@ export type GameAction =
   | { type: 'GAME_END'; payload: { winner: number; finalScores: number[] } }
   | { type: 'TURN_START'; payload: { player: number; timeoutAt: number } }
   | { type: 'PASS_TIMER_START'; payload: { timeoutAt: number } }
+  | { type: 'CONTRACT_TIMER_START'; payload: { timeoutAt: number } }
+  | { type: 'BIDDING_TIMER_START'; payload: { timeoutAt: number } }
   | { type: 'ADD_CHAT_MESSAGE'; payload: ChatMessage }
   | { type: 'UPDATE_TYPING'; payload: string[] }
   | { type: 'REMATCH_STATUS'; payload: Record<number, boolean> }
@@ -176,6 +209,10 @@ export type GameAction =
   | { type: 'CONTRACT_SELECTION_START'; payload: { selector: number; availableContracts: KingContract[]; gameNumber: number; partyNumber: number } }
   | { type: 'CONTRACT_SELECTED'; payload: { contract: KingContract } }
   | { type: 'UPDATE_KING_STATE'; payload: Partial<KingGameState> }
+  // Spades-specific actions
+  | { type: 'BIDDING_START'; payload: { currentBidder: number } }
+  | { type: 'BID_SUBMITTED'; payload: { bids: SpadesBid[]; nextBidder: number | null } }
+  | { type: 'UPDATE_SPADES_STATE'; payload: Partial<SpadesGameState> }
   // Spectating actions
   | { type: 'SPECTATE_JOIN'; payload: { tableId: string; players: Player[]; gameType: GameType; gameState: SpectatorGameState } }
   | { type: 'SPECTATE_UPDATE'; payload: { gameState?: SpectatorGameState; spectatorCount?: number } }
@@ -219,4 +256,11 @@ export interface SpectatorGameState {
   lastTrickCards?: TrickCard[] | null;
   tricksTaken?: number[];
   contractHistory?: { selector: number; contract: KingContract }[];
+  
+  // Spades-specific
+  spadesBroken?: boolean;
+  bids?: (number | 'nil' | 'blind_nil' | null)[];
+  teamScores?: number[];
+  bags?: number[];
+  teamBids?: number[];
 }

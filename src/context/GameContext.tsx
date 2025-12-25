@@ -1,5 +1,5 @@
 import { createContext, useContext, useReducer, type Dispatch, type ReactNode } from 'react';
-import type { GameState, GameAction, Card, KingGameState } from '../types/game';
+import type { GameState, GameAction, Card, KingGameState, SpadesGameState } from '../types/game';
 
 const initialKingState: KingGameState = {
   currentContractSelector: null,
@@ -9,6 +9,18 @@ const initialKingState: KingGameState = {
   partyNumber: 1,
   contractHistory: [],
   partyScores: [0, 0, 0, 0],
+};
+
+const initialSpadesState: SpadesGameState = {
+  bids: [null, null, null, null],
+  currentBidder: null,
+  bidSubmitted: false,
+  canDeclareBlindNil: true,
+  teamBids: [0, 0],
+  teamTricks: [0, 0],
+  tricksTakenBySeat: [0, 0, 0, 0],
+  bags: [0, 0],
+  spadesBroken: false,
 };
 
 const initialState: GameState = {
@@ -32,6 +44,7 @@ const initialState: GameState = {
   passSubmitted: false,
   selectedPassCards: [],
   kingState: null,
+  spadesState: null,
   roundScores: [0, 0, 0, 0],
   cumulativeScores: [0, 0, 0, 0],
   pointCardsTaken: [[], [], [], []],
@@ -50,6 +63,8 @@ const initialState: GameState = {
   rematchVotes: {},
   turnTimeoutAt: null,
   passTimeoutAt: null,
+  contractTimeoutAt: null,
+  biddingTimeoutAt: null,
   moonShooter: null,
 };
 
@@ -71,11 +86,21 @@ function gameReducer(state: GameState, action: GameAction): GameState {
         gameType: action.payload.gameType || 'hearts',
         endingScore: action.payload.endingScore ?? null,
         kingState: action.payload.gameType === 'king' ? { ...initialKingState } : null,
+        spadesState: action.payload.gameType === 'spades' ? { ...initialSpadesState } : null,
         phase: 'waiting',
       };
     
     case 'LEAVE_TABLE':
-      return { ...initialState, connectionStatus: state.connectionStatus };
+      return { 
+        ...initialState, 
+        connectionStatus: state.connectionStatus,
+        kingState: null,
+        spadesState: null,
+        turnTimeoutAt: null,
+        passTimeoutAt: null,
+        contractTimeoutAt: null,
+        biddingTimeoutAt: null,
+      };
     
     case 'UPDATE_PLAYERS':
       return { ...state, players: action.payload };
@@ -103,7 +128,15 @@ function gameReducer(state: GameState, action: GameAction): GameState {
     
     case 'UPDATE_GAME': {
       // Don't let updateGame override currentTrick/lastTrick during animation
-      const payload = action.payload;
+      const payload = action.payload as Partial<GameState> & { 
+        gameNumber?: number; 
+        contract?: unknown;
+        teamTricks?: number[];
+        tricksTakenBySeat?: number[];
+        bids?: (number | 'nil' | 'blind_nil' | null)[];
+        spadesBroken?: boolean;
+        bags?: number[];
+      };
       
       // Update kingState if gameNumber or contract is in payload
       let updatedKingState = state.kingState;
@@ -112,25 +145,49 @@ function gameReducer(state: GameState, action: GameAction): GameState {
         updatedKingState = {
           ...currentKingState,
           ...(payload.gameNumber !== undefined ? { gameNumber: payload.gameNumber } : {}),
-          ...(payload.contract !== undefined ? { selectedContract: payload.contract } : {}),
+          ...(payload.contract !== undefined ? { selectedContract: payload.contract as KingGameState['selectedContract'] } : {}),
+        };
+      }
+      
+      // Update spadesState if Spades-specific properties are in payload
+      let updatedSpadesState = state.spadesState;
+      if (state.gameType === 'spades' && (
+        payload.teamTricks !== undefined ||
+        payload.tricksTakenBySeat !== undefined ||
+        payload.bids !== undefined ||
+        payload.spadesBroken !== undefined ||
+        payload.bags !== undefined
+      )) {
+        const currentSpadesState = state.spadesState || initialSpadesState;
+        updatedSpadesState = {
+          ...currentSpadesState,
+          ...(payload.teamTricks !== undefined ? { teamTricks: payload.teamTricks as [number, number] } : {}),
+          ...(payload.tricksTakenBySeat !== undefined ? { tricksTakenBySeat: payload.tricksTakenBySeat } : {}),
+          ...(payload.bids !== undefined ? { bids: payload.bids } : {}),
+          ...(payload.spadesBroken !== undefined ? { spadesBroken: payload.spadesBroken } : {}),
+          ...(payload.bags !== undefined ? { bags: payload.bags as [number, number] } : {}),
         };
       }
       
       if (state.trickAnimation) {
         // eslint-disable-next-line @typescript-eslint/no-unused-vars
-        const { currentTrick: _ct, lastTrick: _lt, ...safePayload } = payload;
+        const { currentTrick: _ct, lastTrick: _lt, teamTricks: _tt, tricksTakenBySeat: _tts, bids: _b, spadesBroken: _sb, bags: _bg, ...safePayload } = payload;
         return {
           ...state,
           ...safePayload,
           kingState: updatedKingState,
+          spadesState: updatedSpadesState,
           isMyTurn: payload.phase === 'playing' && 
             payload.currentPlayer === state.mySeat,
         };
       }
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { teamTricks: _tt2, tricksTakenBySeat: _tts2, bids: _b2, spadesBroken: _sb2, bags: _bg2, ...cleanPayload } = payload;
       return {
         ...state,
-        ...payload,
+        ...cleanPayload,
         kingState: updatedKingState,
+        spadesState: updatedSpadesState,
         isMyTurn: payload.phase === 'playing' && 
           payload.currentPlayer === state.mySeat,
       };
@@ -278,6 +335,18 @@ function gameReducer(state: GameState, action: GameAction): GameState {
         ...state,
         passTimeoutAt: action.payload.timeoutAt,
       };
+
+    case 'CONTRACT_TIMER_START':
+      return {
+        ...state,
+        contractTimeoutAt: action.payload.timeoutAt,
+      };
+
+    case 'BIDDING_TIMER_START':
+      return {
+        ...state,
+        biddingTimeoutAt: action.payload.timeoutAt,
+      };
     
     case 'ADD_CHAT_MESSAGE':
       return {
@@ -356,6 +425,40 @@ function gameReducer(state: GameState, action: GameAction): GameState {
     
     case 'LEAVE_SPECTATE':
       return { ...initialState, connectionStatus: state.connectionStatus };
+    
+    // Spades-specific actions
+    case 'BIDDING_START':
+      return {
+        ...state,
+        phase: 'bidding',
+        spadesState: {
+          ...(state.spadesState || initialSpadesState),
+          currentBidder: action.payload.currentBidder,
+          bids: [null, null, null, null],
+          bidSubmitted: false,
+        },
+        isMyTurn: action.payload.currentBidder === state.mySeat,
+      };
+    
+    case 'BID_SUBMITTED':
+      return {
+        ...state,
+        spadesState: state.spadesState ? {
+          ...state.spadesState,
+          bids: action.payload.bids,
+          currentBidder: action.payload.nextBidder ?? state.spadesState.currentBidder,
+        } : null,
+        isMyTurn: action.payload.nextBidder === state.mySeat,
+      };
+    
+    case 'UPDATE_SPADES_STATE':
+      return {
+        ...state,
+        spadesState: state.spadesState ? {
+          ...state.spadesState,
+          ...action.payload,
+        } : null,
+      };
     
     default:
       return state;

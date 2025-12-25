@@ -601,6 +601,8 @@ interface SocketContextType {
   setTyping: (isTyping: boolean) => void;
   // King-specific
   selectContract: (contractType: string, trumpSuit?: string) => void;
+  // Spades-specific
+  submitBid: (bid: number | 'nil' | 'blind_nil') => void;
 }
 
 const SocketContext = createContext<SocketContextType | null>(null);
@@ -696,9 +698,9 @@ export function SocketProvider({ children }: { children: ReactNode }) {
     newSocket.on('trickEnd', (data: { winner: number; points: number; lastTrick: TrickCard[] }) => {
       dispatch({ type: 'TRICK_END', payload: data });
       
-      // Play trick win sound only for the winner
+      // Play trick win sound only for the winner (not in Spades)
       const currentState = stateRef.current;
-      if (data.winner === currentState.mySeat) {
+      if (data.winner === currentState.mySeat && currentState.gameType !== 'spades') {
         const context: TrickSoundContext = {
           gameType: currentState.gameType as 'hearts' | 'king',
           contract: currentState.kingState?.selectedContract || null,
@@ -745,6 +747,14 @@ export function SocketProvider({ children }: { children: ReactNode }) {
       dispatch({ type: 'PASS_TIMER_START', payload: data });
     });
 
+    newSocket.on('selectTimerStart', (data: { timeoutAt: number; selectorSeat: number }) => {
+      dispatch({ type: 'CONTRACT_TIMER_START', payload: { timeoutAt: data.timeoutAt } });
+    });
+
+    newSocket.on('bidTimerStart', (data: { player: number; timeoutAt: number }) => {
+      dispatch({ type: 'BIDDING_TIMER_START', payload: { timeoutAt: data.timeoutAt } });
+    });
+
     newSocket.on('autoPlay', (data: { card: Card }) => {
       console.log('Auto-played card:', data.card);
     });
@@ -783,18 +793,25 @@ export function SocketProvider({ children }: { children: ReactNode }) {
           partyNumber: data.partyNumber,
         }
       });
-      // Play game start fanfare only for the very first contract (game 1)
+      // Play dealing sound on first game
       if (data.gameNumber === 1 && isFirstRound) {
-        playGameStartSound();
-        isFirstRound = false;
-        setTimeout(() => playCardDealingSound(), 500);
+        // Just play dealing sound, game start sound plays after contract is selected
+        playCardDealingSound();
       } else {
         playCardDealingSound();
       }
     });
 
-    newSocket.on('contractSelected', (data: { contract: KingContract }) => {
+    newSocket.on('contractSelected', (data: { 
+      contract: KingContract;
+      gameNumber?: number;
+    }) => {
       dispatch({ type: 'CONTRACT_SELECTED', payload: data });
+      // Play game start sound only after the very first contract is selected
+      if (data.gameNumber === 1 && isFirstRound) {
+        playGameStartSound();
+        isFirstRound = false;
+      }
     });
 
     newSocket.on('kingGameStart', (data: { 
@@ -858,6 +875,115 @@ export function SocketProvider({ children }: { children: ReactNode }) {
           },
         } 
       });
+    });
+
+    // Spades-specific events
+    newSocket.on('biddingStart', (data: {
+      hand: Card[];
+      currentBidder: number;
+      roundNumber: number;
+    }) => {
+      dispatch({ type: 'START_GAME', payload: { 
+        hand: data.hand, 
+        passDirection: 'hold', 
+        phase: 'bidding', 
+        currentPlayer: data.currentBidder 
+      }});
+      dispatch({ type: 'BIDDING_START', payload: { currentBidder: data.currentBidder } });
+      // Play dealing sound on all rounds
+      playCardDealingSound();
+    });
+
+    newSocket.on('bidSubmitted', (data: {
+      seat: number;
+      bid: number | 'nil' | 'blind_nil';
+      bids: (number | 'nil' | 'blind_nil' | null)[];
+      nextBidder: number | null;
+    }) => {
+      dispatch({ type: 'BID_SUBMITTED', payload: data });
+    });
+
+    newSocket.on('bidsUpdate', (data: {
+      bids: (number | 'nil' | 'blind_nil' | null)[];
+      currentBidder: number | null;
+      teamBids?: number[];
+    }) => {
+      dispatch({ type: 'BID_SUBMITTED', payload: {
+        seat: data.currentBidder ?? 0,
+        bid: 0,
+        bids: data.bids,
+        nextBidder: data.currentBidder,
+      }});
+      // Update team bids if provided
+      if (data.teamBids) {
+        dispatch({ type: 'UPDATE_SPADES_STATE', payload: {
+          teamBids: data.teamBids as [number, number],
+        }});
+      }
+    });
+
+    newSocket.on('spadesGameStart', (data: {
+      currentPlayer: number;
+      legalCards: Card[];
+      bids: (number | 'nil' | 'blind_nil' | null)[];
+      teamBids: number[];
+      cumulativeScores: number[];
+    }) => {
+      console.log('spadesGameStart received:', data);
+      dispatch({ type: 'UPDATE_GAME', payload: {
+        phase: 'playing',
+        currentPlayer: data.currentPlayer,
+        legalCards: data.legalCards,
+        cumulativeScores: data.cumulativeScores,
+      }});
+      dispatch({ type: 'UPDATE_SPADES_STATE', payload: {
+        bids: data.bids,
+        teamBids: data.teamBids as [number, number],
+      }});
+      // Play game start sound only on first round
+      if (isFirstRound) {
+        playGameStartSound();
+        isFirstRound = false;
+      }
+    });
+
+    newSocket.on('spadesRoundEnd', (data: {
+      roundScores: number[];
+      teamScores: number[];
+      bags: number[];
+      tricksTaken: number[];
+      bids: (number | 'nil' | 'blind_nil' | null)[];
+      gameOver: boolean;
+      winners?: number[];
+      roundNumber: number;
+    }) => {
+      dispatch({ type: 'ROUND_END', payload: {
+        roundScores: data.roundScores,
+        cumulativeScores: data.teamScores,
+        pointCardsTaken: [[], [], [], []],
+        moonShooter: null,
+        gameOver: data.gameOver,
+        gameWinner: data.winners?.[0] ?? null,
+      }});
+      dispatch({ type: 'UPDATE_SPADES_STATE', payload: {
+        bags: data.bags as [number, number],
+        tricksTakenBySeat: data.tricksTaken,
+      }});
+      // Reset flag if game over
+      if (data.gameOver) {
+        isFirstRound = true;
+        // Play victory or defeat sound
+        const currentState = stateRef.current;
+        if (currentState.mySeat !== null) {
+          const myTeam = currentState.mySeat % 2;
+          const otherTeam = 1 - myTeam;
+          if (data.teamScores[myTeam] > data.teamScores[otherTeam]) {
+            playVictorySound();
+          } else {
+            playDefeatSound();
+          }
+        }
+      }
     });
 
     setSocket(newSocket);
@@ -929,6 +1055,11 @@ export function SocketProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  // Spades-specific
+  const submitBid = (bid: number | 'nil' | 'blind_nil') => {
+    socket?.emit('submitBid', { bid });
+  };
+
   return (
     <SocketContext.Provider value={{
       socket,
@@ -946,6 +1077,7 @@ export function SocketProvider({ children }: { children: ReactNode }) {
       sendChatMessage,
       setTyping,
       selectContract,
+      submitBid,
     }}>
       {children}
     </SocketContext.Provider>

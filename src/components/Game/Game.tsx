@@ -3,6 +3,7 @@ import { useGame } from '../../context/GameContext';
 import { useSocket, playCardFlipSound, playPointCounterSound } from '../../context/SocketContext';
 import { Card } from './Card';
 import type { Card as CardType, TrickCard, KingContract } from '../../types/game';
+import { APP_VERSION } from '../../constants/version';
 import styles from './Game.module.css';
 
 const DIRECTION_LABELS: Record<string, string> = {
@@ -70,9 +71,11 @@ function cardEquals(a: CardType, b: CardType): boolean {
 
 export function Game() {
   const { state, dispatch } = useGame();
-  const { leaveTable, leaveSpectate, submitPass, playCard, rematch, selectContract } = useSocket();
+  const { leaveTable, leaveSpectate, submitPass, playCard, rematch, selectContract, submitBid } = useSocket();
   const [timerProgress, setTimerProgress] = useState(100);
   const [passTimerProgress, setPassTimerProgress] = useState(100);
+  const [contractTimerProgress, setContractTimerProgress] = useState(100);
+  const [biddingTimerProgress, setBiddingTimerProgress] = useState(100);
   const [animatingSeats, setAnimatingSeats] = useState<Set<number>>(new Set());
   // Track how many cards to show per seat during round end animation
   const [visibleCardCounts, setVisibleCardCounts] = useState<Record<number, number>>({});
@@ -93,6 +96,8 @@ export function Game() {
   const [floatingScores, setFloatingScores] = useState<Record<number, number | null>>({});
   // Displayed scores (delayed update during animation)
   const [displayedScores, setDisplayedScores] = useState<number[]>([0, 0, 0, 0]);
+  // Spades: selected bid value
+  const [selectedBid, setSelectedBid] = useState<number>(1);
 
   // Calculate player positions relative to current player
   const positions = useMemo(() => {
@@ -148,6 +153,46 @@ export function Game() {
 
     return () => clearInterval(interval);
   }, [state.passTimeoutAt]);
+
+  // Contract selection timer progress
+  useEffect(() => {
+    if (!state.contractTimeoutAt) {
+      setContractTimerProgress(100);
+      return;
+    }
+
+    const updateTimer = () => {
+      const now = Date.now();
+      const remaining = Math.max(0, state.contractTimeoutAt! - now);
+      const total = 45000; // 45 seconds for contract selection
+      setContractTimerProgress((remaining / total) * 100);
+    };
+
+    updateTimer();
+    const interval = setInterval(updateTimer, 100);
+
+    return () => clearInterval(interval);
+  }, [state.contractTimeoutAt]);
+
+  // Bidding timer progress
+  useEffect(() => {
+    if (!state.biddingTimeoutAt) {
+      setBiddingTimerProgress(100);
+      return;
+    }
+
+    const updateTimer = () => {
+      const now = Date.now();
+      const remaining = Math.max(0, state.biddingTimeoutAt! - now);
+      const total = 30000;
+      setBiddingTimerProgress((remaining / total) * 100);
+    };
+
+    updateTimer();
+    const interval = setInterval(updateTimer, 100);
+
+    return () => clearInterval(interval);
+  }, [state.biddingTimeoutAt]);
 
   // Dealing animation - when cards are dealt at the start of a round
   useEffect(() => {
@@ -543,7 +588,7 @@ export function Game() {
         <div className={styles.tableCornerInfo}>
           <span className={styles.spectatorBadge}>iZLEYiCi</span>
           <span className={styles.tableId}>Masa: {state.tableId}</span>
-          <span className={styles.versionInfo}>v1.3.1</span>
+          <span className={styles.versionInfo}>{APP_VERSION}</span>
         </div>
 
         <div className={styles.mainArea}>
@@ -565,7 +610,7 @@ export function Game() {
                 {state.gameType === 'king' ? (
                   <>Parti: {spectatorState.gameNumber || 1}/20</>
                 ) : (
-                  <>{state.endingScore || 20} Puanlık</>
+                  <>Bitiş: {state.endingScore || 20}</>
                 )}
               </div>
 
@@ -725,7 +770,7 @@ export function Game() {
       {/* Table info - lower left corner of screen */}
       <div className={styles.tableCornerInfo}>
         <span className={styles.tableId}>Masa: {state.tableId}</span>
-        <span className={styles.versionInfo}>v1.0.0</span>
+        <span className={styles.versionInfo}>{APP_VERSION}</span>
       </div>
 
       <div className={styles.mainArea}>
@@ -745,7 +790,7 @@ export function Game() {
               state.isMyTurn ? (
                 <div className={styles.contractSelectionOverlay}>
                   <div className={styles.contractSelectionBox}>
-                    <h3>ihale Seç</h3>
+                    <h3>Ceza Seç</h3>
                     <div className={styles.contractGrid}>
                       {state.kingState.availableContracts
                         .filter(contract => contract.type !== 'trump')
@@ -804,6 +849,166 @@ export function Game() {
               </div>
             )}
 
+            {/* Bidding UI for Spades */}
+            {state.phase === 'bidding' && state.gameType === 'spades' && state.spadesState && (
+              state.isMyTurn ? (
+                <div className={styles.contractSelectionOverlay}>
+                  <div className={styles.biddingBox}>
+                    <h3>ihale Ver</h3>
+                    <div className={styles.biddingControls}>
+                      <div className={styles.bidSliderRow}>
+                        <button
+                          className={styles.bidAdjustButton}
+                          onClick={() => setSelectedBid(Math.max(0, selectedBid - 1))}
+                          disabled={selectedBid <= 0}
+                        >
+                          −
+                        </button>
+                        <input
+                          type="range"
+                          min="0"
+                          max="13"
+                          value={selectedBid}
+                          onChange={(e) => setSelectedBid(Number(e.target.value))}
+                          className={styles.bidSlider}
+                        />
+                        <button
+                          className={styles.bidAdjustButton}
+                          onClick={() => setSelectedBid(Math.min(13, selectedBid + 1))}
+                          disabled={selectedBid >= 13}
+                        >
+                          +
+                        </button>
+                        {/* Timer for bidding - inline with slider */}
+                        <div className={styles.bidTimer}>
+                          <div 
+                            className={`${styles.bidTimerProgress} ${biddingTimerProgress < 30 ? styles.danger : biddingTimerProgress < 60 ? styles.warning : ''}`}
+                            style={{ height: `${biddingTimerProgress}%` }}
+                          />
+                        </div>
+                      </div>
+                      <div className={styles.bidValueDisplay}>{selectedBid === 0 ? 'Nil' : selectedBid}</div>
+                      <div className={styles.bidButtons}>
+                        <button
+                          className={styles.bidSubmitButton}
+                          onClick={() => submitBid(selectedBid === 0 ? 'nil' : selectedBid)}
+                        >
+                          Tamam
+                        </button>
+                        <button
+                          className={`${styles.bidSubmitButton} ${styles.blindNilBid}`}
+                          onClick={() => submitBid('blind_nil')}
+                          disabled={(() => {
+                            const mySeat = state.mySeat ?? 0;
+                            const myTeam = mySeat % 2;
+                            const partnerSeat = (mySeat + 2) % 4;
+                            const teamScore = state.cumulativeScores[myTeam] || 0;
+                            const opponentTeam = (myTeam + 1) % 2;
+                            const opponentScore = state.cumulativeScores[opponentTeam] || 0;
+                            const partnerBid = state.spadesState?.bids[partnerSeat];
+                            const isBehind = opponentScore - teamScore >= 100;
+                            const partnerHasBlindNil = partnerBid === 'blind_nil';
+                            return !isBehind || partnerHasBlindNil;
+                          })()}
+                        >
+                          Kör Nil
+                        </button>
+                      </div>
+                    </div>
+                    {/* Show other players' bids */}
+                    <div className={styles.bidsDisplayTeams}>
+                      <div className={styles.bidsTeam}>
+                        <div className={styles.bidsTeamLabelActive}>Takım 1</div>
+                        {[0, 2].map(seat => {
+                          const bid = state.spadesState?.bids[seat];
+                          return (
+                            <div key={seat} className={styles.bidEntry}>
+                              <span className={styles.bidPlayerName}>{getPlayerName(seat)}</span>
+                              <span className={styles.bidValue}>
+                                {bid === null ? '...' : bid === 'nil' ? 'Nil' : bid === 'blind_nil' ? 'Kör Nil' : bid}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                      <div className={styles.bidsTeam}>
+                        <div className={styles.bidsTeamLabelActive}>Takım 2</div>
+                        {[1, 3].map(seat => {
+                          const bid = state.spadesState?.bids[seat];
+                          return (
+                            <div key={seat} className={styles.bidEntry}>
+                              <span className={styles.bidPlayerName}>{getPlayerName(seat)}</span>
+                              <span className={styles.bidValue}>
+                                {bid === null ? '...' : bid === 'nil' ? 'Nil' : bid === 'blind_nil' ? 'Kör Nil' : bid}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className={styles.waitingForContractOverlay}>
+                  <div className={styles.waitingForContractText}>
+                    {getPlayerName(state.spadesState.currentBidder ?? 0)} ihale veriyor...
+                    <div className={styles.bidsDisplayTeams}>
+                      <div className={styles.bidsTeam}>
+                        <div className={styles.bidsTeamLabelWaiting}>Takım 1</div>
+                        {[0, 2].map(seat => {
+                          const bid = state.spadesState?.bids[seat];
+                          return (
+                            <div key={seat} className={styles.bidEntry}>
+                              <span className={styles.bidPlayerName}>{getPlayerName(seat)}</span>
+                              <span className={styles.bidValue}>
+                                {bid === null ? '...' : bid === 'nil' ? 'Nil' : bid === 'blind_nil' ? 'Kör Nil' : bid}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                      <div className={styles.bidsTeam}>
+                        <div className={styles.bidsTeamLabelWaiting}>Takım 2</div>
+                        {[1, 3].map(seat => {
+                          const bid = state.spadesState?.bids[seat];
+                          return (
+                            <div key={seat} className={styles.bidEntry}>
+                              <span className={styles.bidPlayerName}>{getPlayerName(seat)}</span>
+                              <span className={styles.bidValue}>
+                                {bid === null ? '...' : bid === 'nil' ? 'Nil' : bid === 'blind_nil' ? 'Kör Nil' : bid}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )
+            )}
+
+            {/* Spades team scores and bids display during play */}
+            {state.gameType === 'spades' && state.spadesState && (state.phase === 'playing' || state.phase === 'roundEnd') && (
+              <div className={styles.spadesInfoDisplay}>
+                <div className={styles.teamInfo}>
+                  <div className={styles.teamLabel}>Takım 1</div>
+                  <div className={styles.teamScore}>{state.cumulativeScores[0] || 0}</div>
+                  <div className={styles.teamTricks}>
+                    El: {state.spadesState.teamTricks[0] || 0}/{state.spadesState.teamBids[0] || 0}
+                  </div>
+                  <div className={styles.teamBags}>Ceza: {state.spadesState.bags[0]}</div>
+                </div>
+                <div className={styles.teamInfo}>
+                  <div className={styles.teamLabel}>Takım 2</div>
+                  <div className={styles.teamScore}>{state.cumulativeScores[1] || 0}</div>
+                  <div className={styles.teamTricks}>
+                    El: {state.spadesState.teamTricks[1] || 0}/{state.spadesState.teamBids[1] || 0}
+                  </div>
+                  <div className={styles.teamBags}>Ceza: {state.spadesState.bags[1]}</div>
+                </div>
+              </div>
+            )}
+
             {/* Leave button - southeast corner */}
             <div className={styles.tableCornerActions}>
               <button className={styles.tableLeaveButton} onClick={leaveTable}>
@@ -840,9 +1045,24 @@ export function Game() {
                             style={{ transform: (position === 'right' || position === 'bottom') ? 'scaleX(-1)' : 'none' }}
                           />
                         )}
-                        <span className={styles.playerScore}>
-                          Puan: {displayedScores[seat]}
-                        </span>
+                        {state.gameType !== 'spades' && (
+                          <span className={styles.playerScore}>
+                            Puan: {displayedScores[seat]}
+                          </span>
+                        )}
+                        {/* Spades bid indicator */}
+                        {state.gameType === 'spades' && state.spadesState && (state.phase === 'playing' || state.phase === 'roundEnd') && (() => {
+                          const bid = state.spadesState.bids[seat];
+                          if (bid === null) return null;
+                          const tricksTaken = state.spadesState.tricksTakenBySeat?.[seat] || 0;
+                          const isNilBid = bid === 'nil' || bid === 'blind_nil';
+                          const nilFailed = isNilBid && tricksTaken > 0;
+                          return (
+                            <span className={`${styles.playerBid} ${nilFailed ? styles.failedNilBid : ''}`}>
+                              ihale: {bid === 'blind_nil' ? 'kör nil' : bid === 'nil' ? 'nil' : bid}
+                            </span>
+                          );
+                        })()}
                         {/* Moon shot animation */}
                         {state.moonShooter === seat && (
                           <div className={styles.moonShotText}>

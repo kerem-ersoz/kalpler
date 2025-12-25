@@ -18,7 +18,10 @@
     "test:bots:king:fast": "node server/test-bots-king.js --auto --fast",
     "test:bots:hearts": "node server/test-bots.js",
     "test:bots:hearts:auto": "node server/test-bots.js --auto",
-    "test:bots:hearts:fast": "node server/test-bots.js --auto --fast"
+    "test:bots:hearts:fast": "node server/test-bots.js --auto --fast",
+    "test:bots:spades": "node server/test-bots-spades.js",
+    "test:bots:spades:auto": "node server/test-bots-spades.js --auto",
+    "test:bots:spades:fast": "node server/test-bots-spades.js --auto --fast"
   },
   "keywords": ["hearts", "card-game", "multiplayer", "socket.io"],
   "author": "",
