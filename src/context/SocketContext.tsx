@@ -624,16 +624,41 @@ export function SocketProvider({ children }: { children: ReactNode }) {
     const socketUrl = import.meta.env.PROD 
       ? (import.meta.env.VITE_SOCKET_URL || window.location.origin)
       : 'http://localhost:3000';
-    const newSocket = io(socketUrl);
+    
+    const newSocket = io(socketUrl, {
+      reconnection: true,
+      reconnectionDelay: 1000,
+      reconnectionDelayMax: 5000,
+      reconnectionAttempts: Infinity,
+      transports: ['websocket', 'polling'],
+      // Improve mobile handling
+      rememberUpgrade: true,
+    });
     
     newSocket.on('connect', () => {
       setIsConnected(true);
       dispatch({ type: 'SET_CONNECTION_STATUS', payload: 'connected' });
+      console.log('Socket connected');
     });
 
-    newSocket.on('disconnect', () => {
+    newSocket.on('disconnect', (reason: string) => {
       setIsConnected(false);
       dispatch({ type: 'SET_CONNECTION_STATUS', payload: 'disconnected' });
+      console.log('Socket disconnected:', reason);
+    });
+
+    newSocket.on('connect_error', (error: Error) => {
+      console.error('Socket connection error:', error);
+    });
+
+    newSocket.on('reconnect_attempt', () => {
+      console.log('Attempting to reconnect...');
+    });
+
+    newSocket.on('reconnect', () => {
+      console.log('Socket reconnected successfully');
+      setIsConnected(true);
+      dispatch({ type: 'SET_CONNECTION_STATUS', payload: 'connected' });
     });
 
     newSocket.on('error', (data: { message: string }) => {
@@ -988,7 +1013,25 @@ export function SocketProvider({ children }: { children: ReactNode }) {
 
     setSocket(newSocket);
 
+    // Handle visibility changes on mobile (app/tab switching)
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        // App/tab is hidden - don't disconnect, just log
+        console.log('App/tab hidden, socket connection maintained');
+      } else {
+        // App/tab is visible again - force a ping to keep connection fresh
+        console.log('App/tab visible again, ensuring connection');
+        if (newSocket.connected) {
+          // Send a keep-alive ping by emitting a dummy event
+          newSocket.emit('keepAlive');
+        }
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
     return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
       newSocket.disconnect();
     };
   }, [dispatch]);

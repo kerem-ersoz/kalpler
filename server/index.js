@@ -26,6 +26,12 @@ const io = new Server(httpServer, {
     methods: ['GET', 'POST'],
     credentials: false,
   },
+  // Increase ping interval and timeout to handle mobile app switching
+  pingInterval: 25000,      // Send ping every 25 seconds (default is 25s)
+  pingTimeout: 60000,       // Wait 60 seconds for pong (default is 20s, too aggressive for mobile)
+  upgradeTimeout: 10000,    // Timeout for upgrade attempts
+  maxHttpBufferSize: 1e6,   // Max message size (1MB)
+  allowEIO3: true,          // Support older socket.io clients
 });
 
 // Load Turkish words for table IDs
@@ -244,6 +250,16 @@ io.on('connection', (socket) => {
   
   let currentTableId = null;
   let isSpectating = false;
+
+  // -------------------------------------------------------------------------
+  // KEEP-ALIVE EVENT (for mobile app/tab switching)
+  // -------------------------------------------------------------------------
+
+  socket.on('keepAlive', () => {
+    // Just acknowledging the keep-alive ping to maintain connection
+    // Socket.io's built-in ping/pong should handle most cases, but this
+    // helps ensure the connection stays alive during mobile app switching
+  });
 
   // -------------------------------------------------------------------------
   // LOBBY EVENTS
