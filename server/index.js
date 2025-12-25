@@ -8,6 +8,7 @@ import { readFileSync } from 'fs';
 
 import { HeartsGame } from './games/HeartsGame.js';
 import { KingGame, CONTRACT_TYPES, PENALTY_CONTRACTS, CONTRACT_LABELS, TRUMP_LABELS } from './games/KingGame.js';
+import { SpadesGame } from './games/SpadesGame.js';
 import { RANK_VALUES, cardEquals } from './shared/cards.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -46,7 +47,8 @@ if (process.env.NODE_ENV === 'production') {
 
 export const GAME_TYPES = {
   HEARTS: 'hearts',
-  KING: 'king'
+  KING: 'king',
+  SPADES: 'spades'
 };
 
 // ============================================================================

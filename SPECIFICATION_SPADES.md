@@ -178,6 +178,7 @@ socket.on('submitBid', (bid) => {
 ### Client-Side Implementation
 
 - Show bid input (0–13) and Nil toggle (Blind Nil optional).
+- Bid input should be a slider with a confirm and a blind nil button.
 - Emit `submitBid` upon confirmation.
 - Display partner/team bid sum as players submit.
 
@@ -248,8 +249,8 @@ function getLegalCards(playerId, trickCards, spadesBroken) {
 
 ### Nil & Blind Nil
 
-- **Nil (0):** If Nil bidder takes zero tricks ⇒ +100 points to team; if Nil fails (takes any trick) ⇒ −100 points to team.
-- **Blind Nil (Optional):** Declare before seeing cards ⇒ +200 on success / −200 on failure.
+- **Nil (0):** If Nil bidder takes zero tricks ⇒ +50 points to team; if Nil fails (takes any trick) ⇒ −50 points to team.
+- **Blind Nil (Optional):** Declare before seeing cards ⇒ +100 on success / −100 on failure. Blind nil may only be declared if a team is behind by at least 99 points, and it may only be declared by one member of the team. Each member of a blind nil team chooses two cards to send to their partner.
 - **Partner Scoring:** Partner’s bid scored independently; Nil bidder’s tricks (if any) count toward team bags.
 
 ### Example Calculation
