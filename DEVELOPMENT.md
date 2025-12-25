@@ -10,7 +10,7 @@ This document provides instructions for setting up, building, and testing the Ka
 ## Project Structure
 
 ```
-kalpler/
+gonul/
 ├── data/
 │   └── turkish-words.json    # Turkish word list for table IDs
 ├── server/
@@ -41,8 +41,8 @@ kalpler/
 
 1. **Clone the repository:**
    ```bash
-   git clone https://github.com/kerem-ersoz/kalpler.git
-   cd kalpler
+   git clone https://github.com/kerem-ersoz/gonul.git
+   cd gonul
    ```
 
 2. **Install dependencies:**
@@ -216,7 +216,7 @@ npm run lint
 
 ```bash
 npm install -g pm2
-pm2 start server/index.js --name kalpler
+pm2 start server/index.js --name gonul
 pm2 save
 pm2 startup
 ```
@@ -241,8 +241,8 @@ CMD ["node", "server/index.js"]
 Build and run:
 ```bash
 npm run build
-docker build -t kalpler .
-docker run -p 3000:3000 kalpler
+docker build -t gonul .
+docker run -p 3000:3000 gonul
 ```
 
 ## Contributing

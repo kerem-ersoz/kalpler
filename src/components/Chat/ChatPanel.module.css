@@ -1,6 +1,6 @@
 .chatPanel {
   background: 
-    url('/kalpler/assets/backgrounds/chat.png?v=2') center/cover,
+    url('/gonul/assets/backgrounds/chat.png?v=2') center/cover,
     rgba(50, 50, 50, 0.5);
   border-radius: 1px;
   display: flex;
