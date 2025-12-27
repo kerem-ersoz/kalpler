@@ -1178,7 +1178,7 @@ function sendGameStateToPlayer(table, socketId, seat) {
       io.to(socketId).emit('contractSelected', {
         gameType: GAME_TYPES.KING,
         hand: table.game.hands[seat],
-        contract: table.game.currentContract.name,
+        contract: table.game.currentContract?.name || table.game.currentContract?.type || null,
         selector: table.game.selectorSeat,
         trumpSuit: table.game.trumpSuit,
         currentPlayer: table.game.currentPlayer,
